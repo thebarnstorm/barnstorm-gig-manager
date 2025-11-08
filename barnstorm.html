@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Barnstorm - Gig Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getFirestore, collection, addDoc, updateDoc, doc, query, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDhYBUzbpBBv40-X6SLASGikxoMUWcCU5Q",
+            authDomain: "barnstorm-gig-manager.firebaseapp.com",
+            projectId: "barnstorm-gig-manager",
+            storageBucket: "barnstorm-gig-manager.firebasestorage.app",
+            messagingSenderId: "819468934815",
+            appId: "1:819468934815:web:9959740caf4bec736eccaa"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const OWNER_UID = 'jpHnAHzT1nPDZRkAIeANcSIPzLN2';
+
+        let currentUser = null;
+        let gigs = [];
+        let currentView = 'list';
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                const isOwner = user.uid === OWNER_UID;
+                currentUser = {
+                    uid: user.uid,
+                    email: user.email,
+                    name: user.displayName || user.email.split('@')[0],
+                    role: isOwner ? 'owner' : 'member'
+                };
+                showMainApp();
+                loadGigs();
+            } else {
+                currentUser = null;
+                showLogin();
+            }
+        });
+
+        function showLogin() {
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center p-4">
+                    <div class="bg-white/10 backdrop-blur-md rounded-lg p-8 max-w-md w-full border border-white/20">
+                        <h1 class="text-4xl font-bold text-white mb-2 text-center">The Barnstorm</h1>
+                        <p class="text-purple-200 text-center mb-8">Gig Manager</p>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-white mb-2">Email</label>
+                                <input type="email" id="email" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white">
+                            </div>
+                            <div>
+                                <label class="block text-white mb-2">Password</label>
+                                <input type="password" id="password" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white">
+                            </div>
+                            <button id="loginBtn" class="w-full py-3 bg-purple-500 hover:bg-purple-600 text-white rounded-lg font-semibold">Login</button>
+                        </div>
+                        <div id="loginError" class="mt-4 text-red-300 text-sm hidden"></div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('loginBtn').addEventListener('click', handleLogin);
+            document.getElementById('password').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') handleLogin();
+            });
+        }
+
+        async function handleLogin() {
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                document.getElementById('loginError').textContent = 'Login failed: ' + error.message;
+                document.getElementById('loginError').classList.remove('hidden');
+            }
+        }
+
+        function showMainApp() {
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+                    <div class="max-w-7xl mx-auto">
+                        <div class="bg-white/10 backdrop-blur-md rounded-lg p-6 mb-6 border border-white/20">
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <h1 class="text-3xl font-bold text-white mb-2">The Barnstorm</h1>
+                                    <p class="text-purple-200">Welcome, ${currentUser.name}</p>
+                                    <p class="text-purple-300 text-sm">${currentUser.role === 'owner' ? 'Owner Account' : 'Band Member'}</p>
+                                </div>
+                                <button id="logoutBtn" class="px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-white rounded-lg border border-red-300/30">Logout</button>
+                            </div>
+                        </div>
+                        <div class="bg-white/10 backdrop-blur-md rounded-lg p-4 mb-6 border border-white/20">
+                            <div class="flex justify-between items-center">
+                                <div class="flex gap-2">
+                                    <button id="listViewBtn" class="px-4 py-2 rounded-lg bg-purple-500 text-white">List</button>
+                                    <button id="calViewBtn" class="px-4 py-2 rounded-lg bg-white/5 text-purple-200">Calendar</button>
+                                </div>
+                                ${currentUser.role === 'owner' ? '<button id="addGigBtn" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg">+ Add Gig</button>' : ''}
+                            </div>
+                        </div>
+                        <div id="gigsContainer"></div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth));
+            document.getElementById('listViewBtn').addEventListener('click', () => switchView('list'));
+            document.getElementById('calViewBtn').addEventListener('click', () => switchView('calendar'));
+            if (currentUser.role === 'owner') {
+                document.getElementById('addGigBtn').addEventListener('click', () => showGigForm(null));
+            }
+            renderGigs();
+        }
+
+        function switchView(view) {
+            currentView = view;
+            document.getElementById('listViewBtn').className = view === 'list' ? 'px-4 py-2 rounded-lg bg-purple-500 text-white' : 'px-4 py-2 rounded-lg bg-white/5 text-purple-200';
+            document.getElementById('calViewBtn').className = view === 'calendar' ? 'px-4 py-2 rounded-lg bg-purple-500 text-white' : 'px-4 py-2 rounded-lg bg-white/5 text-purple-200';
+            renderGigs();
+        }
+
+        function loadGigs() {
+            const gigsQuery = query(collection(db, 'gigs'), orderBy('date', 'asc'));
+            onSnapshot(gigsQuery, (snapshot) => {
+                gigs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderGigs();
+            });
+        }
+
+        function renderGigs() {
+            const container = document.getElementById('gigsContainer');
+            if (!container) return;
+            if (gigs.length === 0) {
+                container.innerHTML = `<div class="bg-white/10 backdrop-blur-md rounded-lg p-12 border border-white/20 text-center"><p class="text-white text-xl mb-2">No gigs scheduled yet</p>${currentUser.role === 'owner' ? '<p class="text-purple-200">Click "Add Gig" to create your first gig</p>' : ''}</div>`;
+                return;
+            }
+            if (currentView === 'list') {
+                container.innerHTML = gigs.map(gig => `
+                    <div class="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20 hover:bg-white/15 cursor-pointer mb-4" onclick="showGigDetail('${gig.id}')">
+                        <h3 class="text-2xl font-bold text-white mb-1">${gig.eventName}</h3>
+                        <p class="text-purple-200">${new Date(gig.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</p>
+                        <div class="mt-3"><p class="font-semibold text-white">${gig.venue}</p><p class="text-sm text-purple-200">${gig.address}</p></div>
+                        ${gig.timing?.bandArrival ? `<p class="text-purple-200 text-sm mt-3">Band Call: ${gig.timing.bandArrival}</p>` : ''}
+                    </div>
+                `).join('');
+            } else {
+                renderCalendar(container);
+            }
+        }
+
+        function renderCalendar(container) {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = now.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const startingDayOfWeek = firstDay.getDay();
+            let html = `<div class="bg-white/10 backdrop-blur-md rounded-lg p-6 border border-white/20"><h2 class="text-2xl font-bold text-white text-center mb-6">${now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h2><div class="grid grid-cols-7 gap-2">`;
+            ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].forEach(d => html += `<div class="text-center font-semibold text-purple-200 py-2">${d}</div>`);
+            html += '<div></div>'.repeat(startingDayOfWeek);
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayGigs = gigs.filter(g => g.date === dateStr);
+                html += `<div class="aspect-square bg-white/5 rounded-lg p-2 border border-white/10"><div class="text-white font-semibold mb-1">${day}</div>${dayGigs.map(g => `<div class="text-xs bg-purple-500 text-white rounded px-1 py-0.5 mb-1 cursor-pointer truncate" onclick="showGigDetail('${g.id}')">${g.eventName}</div>`).join('')}</div>`;
+            }
+            html += '</div></div>';
+            container.innerHTML = html;
+        }
+
+        window.showGigDetail = function(gigId) {
+            const gig = gigs.find(g => g.id === gigId);
+            if (!gig) return;
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4">
+                    <div class="max-w-4xl mx-auto">
+                        <div class="flex gap-4 mb-6">
+                            <button onclick="location.reload()" class="px-4 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20">← Back</button>
+                            ${currentUser.role === 'owner' ? `<button onclick="showGigForm('${gig.id}')" class="px-4 py-2 bg-purple-500 hover:bg-purple-600 text-white rounded-lg">Edit</button>` : ''}
+                        </div>
+                        <div class="bg-white/10 backdrop-blur-md rounded-lg p-8 border border-white/20 space-y-6">
+                            <div><h1 class="text-4xl font-bold text-white mb-2">${gig.eventName}</h1><p class="text-xl text-purple-200">${new Date(gig.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</p></div>
+                            <div><h2 class="text-xl font-bold text-white mb-3">Venue</h2><div class="pl-4"><p class="text-white font-semibold">${gig.venue}</p><p class="text-purple-200">${gig.address}</p></div></div>
+                            ${gig.timing && Object.values(gig.timing).some(v => v) ? `<div><h2 class="text-xl font-bold text-white mb-3">Timing</h2><div class="pl-4 grid grid-cols-2 gap-4">${gig.timing.productionLoadIn ? `<div><p class="text-sm text-purple-300">Production Load In</p><p class="text-white font-semibold">${gig.timing.productionLoadIn}</p></div>` : ''}${gig.timing.bandArrival ? `<div><p class="text-sm text-purple-300">Band Arrival</p><p class="text-white font-semibold">${gig.timing.bandArrival}</p></div>` : ''}${gig.timing.soundcheckStart ? `<div><p class="text-sm text-purple-300">Soundcheck Start</p><p class="text-white font-semibold">${gig.timing.soundcheckStart}</p></div>` : ''}${gig.timing.soundcheckCurfew ? `<div><p class="text-sm text-purple-300">Soundcheck Curfew</p><p class="text-white font-semibold">${gig.timing.soundcheckCurfew}</p></div>` : ''}${gig.timing.ceremony ? `<div><p class="text-sm text-purple-300">Ceremony</p><p class="text-white font-semibold">${gig.timing.ceremony}</p></div>` : ''}${gig.timing.cocktail ? `<div><p class="text-sm text-purple-300">Cocktail</p><p class="text-white font-semibold">${gig.timing.cocktail}</p></div>` : ''}${gig.timing.reception ? `<div><p class="text-sm text-purple-300">Reception</p><p class="text-white font-semibold">${gig.timing.reception}</p></div>` : ''}${gig.timing.afterParty ? `<div><p class="text-sm text-purple-300">After Party</p><p class="text-white font-semibold">${gig.timing.afterParty}</p></div>` : ''}${gig.timing.exitVenueBy ? `<div><p class="text-sm text-purple-300">Exit By</p><p class="text-white font-semibold">${gig.timing.exitVenueBy}</p></div>` : ''}</div></div>` : ''}
+                            ${gig.production && Object.values(gig.production).some(v => v) ? `<div><h2 class="text-xl font-bold text-white mb-3">Production</h2><div class="pl-4 space-y-2">${gig.production.parking ? `<div class="flex justify-between"><span class="text-purple-300">Parking:</span><span class="text-white">${gig.production.parking}</span></div>` : ''}${gig.production.guestCount ? `<div class="flex justify-between"><span class="text-purple-300">Guest Count:</span><span class="text-white">${gig.production.guestCount}</span></div>` : ''}</div></div>` : ''}
+                            ${gig.bandInfo && (gig.bandInfo.specialSongs || gig.bandInfo.notes) ? `<div><h2 class="text-xl font-bold text-white mb-3">Band Info</h2><div class="pl-4 space-y-3">${gig.bandInfo.specialSongs ? `<div><p class="text-purple-300 font-semibold mb-1">Special Songs:</p><p class="text-white">${gig.bandInfo.specialSongs}</p></div>` : ''}${gig.bandInfo.notes ? `<div><p class="text-purple-300 font-semibold mb-1">Notes:</p><p class="text-white">${gig.bandInfo.notes}</p></div>` : ''}</div></div>` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        };
+
+        window.showGigForm = function(gigId) {
+            const gig = gigId ? gigs.find(g => g.id === gigId) : null;
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-4"><div class="max-w-4xl mx-auto pb-20"><div class="bg-white/10 backdrop-blur-md rounded-lg p-8 border border-white/20">
+                    <h1 class="text-3xl font-bold text-white mb-6">${gig ? 'Edit Gig' : 'New Gig'}</h1>
+                    <div class="space-y-6">
+                        <div class="space-y-4"><h2 class="text-xl font-semibold text-white border-b border-white/20 pb-2">Basic Info</h2>
+                            <input id="eventName" placeholder="Event Name *" value="${gig?.eventName || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">
+                            <input id="date" type="date" value="${gig?.date || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white">
+                            <input id="venue" placeholder="Venue *" value="${gig?.venue || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">
+                            <input id="address" placeholder="Address *" value="${gig?.address || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">
+                        </div>
+                        <div class="space-y-4"><h2 class="text-xl font-semibold text-white border-b border-white/20 pb-2">Timing</h2><div class="grid grid-cols-2 gap-4">
+                            <div><label class="block text-white text-sm mb-1">Production Load In</label><input id="productionLoadIn" type="time" value="${gig?.timing?.productionLoadIn || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Band Arrival</label><input id="bandArrival" type="time" value="${gig?.timing?.bandArrival || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Soundcheck Start</label><input id="soundcheckStart" type="time" value="${gig?.timing?.soundcheckStart || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Soundcheck Curfew</label><input id="soundcheckCurfew" type="time" value="${gig?.timing?.soundcheckCurfew || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Ceremony</label><input id="ceremony" type="time" value="${gig?.timing?.ceremony || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Cocktail</label><input id="cocktail" type="time" value="${gig?.timing?.cocktail || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Reception</label><input id="reception" type="time" value="${gig?.timing?.reception || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">After Party</label><input id="afterParty" type="time" value="${gig?.timing?.afterParty || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                            <div><label class="block text-white text-sm mb-1">Exit Venue By</label><input id="exitVenueBy" type="time" value="${gig?.timing?.exitVenueBy || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white"></div>
+                        </div></div>
+                        <div class="space-y-4"><h2 class="text-xl font-semibold text-white border-b border-white/20 pb-2">Production</h2>
+                            <textarea id="parking" placeholder="Parking Info" rows="2" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">${gig?.production?.parking || ''}</textarea>
+                            <input id="guestCount" type="number" placeholder="Guest Count" value="${gig?.production?.guestCount || ''}" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">
+                        </div>
+                        <div class="space-y-4"><h2 class="text-xl font-semibold text-white border-b border-white/20 pb-2">Band Info</h2>
+                            <textarea id="specialSongs" placeholder="Special Songs" rows="3" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">${gig?.bandInfo?.specialSongs || ''}</textarea>
+                            <textarea id="notes" placeholder="Other Notes" rows="3" class="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-purple-300">${gig?.bandInfo?.notes || ''}</textarea>
+                        </div>
+                        <div class="flex gap-4 pt-4">
+                            <button id="saveBtn" class="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-semibold">${gig ? 'Update' : 'Create'} Gig</button>
+                            <button onclick="location.reload()" class="px-6 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-lg">Cancel</button>
+                        </div>
+                    </div>
+                </div></div></div>
+            `;
+            document.getElementById('saveBtn').addEventListener('click', () => handleGigSubmit(gigId));
+        };
+
+        async function handleGigSubmit(gigId) {
+            const gigData = {
+                eventName: document.getElementById('eventName').value,
+                date: document.getElementById('date').value,
+                venue: document.getElementById('venue').value,
+                address: document.getElementById('address').value,
+                timing: {
+                    productionLoadIn: document.getElementById('productionLoadIn').value,
+                    bandArrival: document.getElementById('bandArrival').value,
+                    soundcheckStart: document.getElementById('soundcheckStart').value,
+                    soundcheckCurfew: document.getElementById('soundcheckCurfew').value,
+                    ceremony: document.getElementById('ceremony').value,
+                    cocktail: document.getElementById('cocktail').value,
+                    reception: document.getElementById('reception').value,
+                    afterParty: document.getElementById('afterParty').value,
+                    exitVenueBy: document.getElementById('exitVenueBy').value
+                },
+                production: {
+                    parking: document.getElementById('parking').value,
+                    guestCount: document.getElementById('guestCount').value
+                },
+                bandInfo: {
+                    specialSongs: document.getElementById('specialSongs').value,
+                    notes: document.getElementById('notes').value
+                }
+            };
+            if (!gigData.eventName || !gigData.date || !gigData.venue || !gigData.address) {
+                alert('Please fill in all required fields');
+                return;
+            }
+            try {
+                if (gigId) {
+                    await updateDoc(doc(db, 'gigs', gigId), gigData);
+                } else {
+                    await addDoc(collection(db, 'gigs'), { ...gigData, createdAt: new Date().toISOString() });
+                }
+                location.reload();
+            } catch (error) {
+                alert('Error saving gig: ' + error.message);
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="app">
+        <div class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 flex items-center justify-center">
+            <div class="text-white text-xl">Loading...</div>
+        </div>
+    </div>
+</body>
+</html>
