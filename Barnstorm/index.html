@@ -1,0 +1,1960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Barnstorm - Gig Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Mobile touch optimizations */
+        * {
+            -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Minimum touch target size for mobile */
+        button, a, input, select {
+            min-height: 44px;
+            min-width: 44px;
+        }
+        
+        /* Focus visible for keyboard navigation */
+        *:focus-visible {
+            outline: 2px solid white;
+            outline-offset: 2px;
+        }
+        
+        /* Hide focus outline for mouse users */
+        *:focus:not(:focus-visible) {
+            outline: none;
+        }
+        
+        /* Skeleton loader animation */
+        @keyframes shimmer {
+            0% { background-position: -1000px 0; }
+            100% { background-position: 1000px 0; }
+        }
+        
+        .skeleton {
+            background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+            background-size: 1000px 100%;
+            animation: shimmer 2s infinite;
+        }
+        
+        /* Pagination container */
+        .pagination-controls {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        
+        /* Screen reader only class */
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border-width: 0;
+        }
+        
+        /* Mobile calendar optimizations */
+        @media (max-width: 768px) {
+            .calendar-grid {
+                font-size: 0.75rem;
+            }
+            
+            .calendar-day {
+                min-height: 60px;
+            }
+        }
+        
+        /* Checkbox styling for better visibility */
+        input[type="checkbox"] {
+            accent-color: #ffffff;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="app" role="main">
+        <div class="min-h-screen bg-black flex items-center justify-center">
+            <div class="text-white text-xl" role="status" aria-live="polite">Loading...</div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
+        import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
+        import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js';
+
+        // *** REPLACE THIS URL WITH YOUR APPS SCRIPT WEB APP URL ***
+        const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyWpAdNj78aVXHD88Mw1d6EEQ49vBUmpITH6O-GwNzWofwDmjUcX41y5h91UhIfSTe-/exec';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDhYBUzbpBBv40-X6SLASGikxoMUWcCU5Q",
+            authDomain: "barnstorm-gig-manager.firebaseapp.com",
+            projectId: "barnstorm-gig-manager",
+            storageBucket: "barnstorm-gig-manager.firebasestorage.app",
+            messagingSenderId: "819468934815",
+            appId: "1:819468934815:web:9959740caf4bec736eccaa"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const storage = getStorage(app);
+        const OWNER_UID = 'jpHnAHzT1nPDZRkAIeANcSIPzLN2';
+        // FIX 1: Force download parameter for better mobile compatibility
+        const LOGO_URL = 'https://www.dropbox.com/scl/fi/05pdxbaub02h1qa6pk9dp/Barnstorm-Logo.jpg?rlkey=8fghkclk4vvz0nxjkr2dninl5&st=1q1vn1b1&raw=1';
+
+        let currentUser = null;
+        let gigs = [];
+        let members = [];
+        let currentView = 'list';
+        let viewMode = 'calendar';
+        let currentCalendarDate = new Date();
+        let showMyGigsOnly = false;
+        let gigsCache = null;
+        let gigsCacheTimestamp = null;
+        
+        // Pagination state
+        let currentPage = 1;
+        let itemsPerPage = 10;
+        let totalPages = 1;
+        
+        // Touch handling for mobile swipe
+        let touchStartX = 0;
+        let touchEndX = 0;
+        
+        // Previous render state to avoid unnecessary re-renders
+        let lastRenderedGigsState = null;
+        let membersUnsubscribe = null;
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                const isOwner = user.uid === OWNER_UID;
+                currentUser = {
+                    uid: user.uid,
+                    email: user.email,
+                    name: user.displayName || user.email.split('@')[0],
+                    role: isOwner ? 'owner' : 'member'
+                };
+                loadMembers();
+                loadGigsFromSheet();
+                showMainApp();
+            } else {
+                currentUser = null;
+                showLogin();
+            }
+        });
+
+        function loadMembers() {
+            // Unsubscribe from previous listener if exists
+            if (membersUnsubscribe) {
+                membersUnsubscribe();
+            }
+            
+            // Only subscribe when members view is active or needed
+            membersUnsubscribe = onSnapshot(query(collection(db, 'members'), orderBy('name', 'asc')), (snapshot) => {
+                const newMembers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // Only update if members actually changed
+                if (JSON.stringify(newMembers) !== JSON.stringify(members)) {
+                    members = newMembers;
+                    
+                    // Only re-render if we're on the members view
+                    if (currentView === 'members' && document.getElementById('membersGrid')) {
+                        renderMembers();
+                    }
+                }
+            });
+        }
+
+        async function loadGigsFromSheet(forceRefresh = false) {
+            const now = Date.now();
+            const cacheExpiry = 5 * 60 * 1000;
+            
+            if (!forceRefresh && gigsCache && gigsCacheTimestamp && (now - gigsCacheTimestamp) < cacheExpiry) {
+                console.log('Using cached gigs data');
+                gigs = gigsCache;
+                if (document.getElementById('gigsContainer')) {
+                    renderGigs();
+                }
+                return;
+            }
+
+            const container = document.getElementById('gigsContainer');
+            if (container) {
+                container.innerHTML = renderSkeletonLoader();
+                container.setAttribute('aria-busy', 'true');
+            }
+
+            try {
+                console.log('Attempting to fetch from:', GOOGLE_SHEET_API_URL);
+                
+                if (GOOGLE_SHEET_API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
+                    throw new Error('You need to replace YOUR_APPS_SCRIPT_WEB_APP_URL_HERE with your actual Apps Script URL');
+                }
+                
+                const response = await fetch(GOOGLE_SHEET_API_URL);
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`Failed to fetch gigs: ${response.status} - ${errorText}`);
+                }
+                
+                const data = await response.json();
+                console.log('Fetched gigs:', data.length, 'gigs');
+                
+                gigs = data;
+                gigsCache = data;
+                gigsCacheTimestamp = now;
+                
+                // Reset render state to force a re-render with new data
+                lastRenderedGigsState = null;
+                
+                if (container) {
+                    container.setAttribute('aria-busy', 'false');
+                }
+                
+                // Only render if the container exists
+                if (document.getElementById('gigsContainer')) {
+                    renderGigs();
+                }
+            } catch (error) {
+                console.error('Error loading gigs:', error);
+                if (container) {
+                    container.setAttribute('aria-busy', 'false');
+                    container.innerHTML = `
+                        <div role="alert" class="text-red-500 text-center py-8">
+                            <p class="mb-4">Error loading gigs: ${escapeHtml(error.message)}</p>
+                            <button onclick="window.retryLoadGigs()" class="px-4 py-2 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors">
+                                Retry
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        }
+        
+        // Helper function to escape HTML and prevent XSS
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Skeleton loader for better perceived performance
+        function renderSkeletonLoader() {
+            return `
+                <div class="space-y-4" role="status" aria-label="Loading gigs">
+                    ${Array(3).fill(0).map(() => `
+                        <div class="bg-zinc-900 border border-zinc-800 p-6">
+                            <div class="skeleton h-6 w-48 mb-4 rounded"></div>
+                            <div class="skeleton h-4 w-32 mb-2 rounded"></div>
+                            <div class="skeleton h-4 w-64 rounded"></div>
+                        </div>
+                    `).join('')}
+                    <span class="sr-only">Loading gigs, please wait...</span>
+                </div>
+            `;
+        }
+        
+        window.retryLoadGigs = function() {
+            loadGigsFromSheet(true);
+        };
+
+        function showLogin() {
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-black flex items-center justify-center p-4">
+                    <div class="bg-zinc-900 border-2 border-white rounded-lg p-8 max-w-md w-full">
+                        <div class="flex justify-center mb-6">
+                            <img src="${LOGO_URL}" alt="The Barnstorm logo" class="h-32 object-contain" loading="eager">
+                        </div>
+                        <h1 class="text-4xl font-bold text-white mb-2 text-center">THE BARNSTORM</h1>
+                        <p class="text-zinc-400 text-center mb-8 uppercase text-sm">Gig Manager</p>
+                        <form id="loginForm" class="space-y-4" onsubmit="return false;">
+                            <div>
+                                <label for="loginEmail" class="block text-white mb-2 text-xs uppercase">Email</label>
+                                <input 
+                                    type="email" 
+                                    id="loginEmail" 
+                                    autocomplete="email" 
+                                    required
+                                    aria-required="true"
+                                    class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                >
+                            </div>
+                            <div>
+                                <label for="loginPassword" class="block text-white mb-2 text-xs uppercase">Password</label>
+                                <input 
+                                    type="password" 
+                                    id="loginPassword" 
+                                    autocomplete="current-password" 
+                                    required
+                                    aria-required="true"
+                                    class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                >
+                            </div>
+                            <button 
+                                id="loginBtn" 
+                                type="submit"
+                                class="w-full py-3 bg-white text-black font-bold uppercase hover:bg-zinc-200 transition-colors"
+                                aria-label="Login to your account"
+                            >
+                                Login
+                            </button>
+                        </form>
+                        <div id="loginError" class="mt-4 text-red-500 text-sm hidden" role="alert" aria-live="polite"></div>
+                    </div>
+                </div>
+            `;
+
+            const form = document.getElementById('loginForm');
+            const loginBtn = document.getElementById('loginBtn');
+            
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                const errorDiv = document.getElementById('loginError');
+
+                try {
+                    loginBtn.disabled = true;
+                    loginBtn.textContent = 'Logging in...';
+                    loginBtn.setAttribute('aria-busy', 'true');
+                    
+                    await signInWithEmailAndPassword(auth, email, password);
+                } catch (error) {
+                    errorDiv.textContent = 'Invalid email or password';
+                    errorDiv.classList.remove('hidden');
+                    loginBtn.disabled = false;
+                    loginBtn.textContent = 'Login';
+                    loginBtn.setAttribute('aria-busy', 'false');
+                }
+            });
+        }
+
+        function showMainApp() {
+            document.getElementById('app').innerHTML = `
+                <div class="min-h-screen bg-black">
+                    <!-- Mobile-optimized header -->
+                    <header class="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-50" role="banner">
+                        <div class="container mx-auto px-4 py-4">
+                            <div class="flex items-center justify-between flex-wrap gap-4">
+                                <div class="flex items-center gap-4">
+                                    <img src="${LOGO_URL}" alt="The Barnstorm" class="h-12 md:h-16 object-contain" loading="eager" onerror="this.style.display='none'">
+                                    <div>
+                                        <h1 class="text-xl md:text-2xl font-bold text-white uppercase">THE BARNSTORM</h1>
+                                        <p class="text-zinc-400 text-xs uppercase">Gig Manager</p>
+                                    </div>
+                                </div>
+                                <nav class="flex items-center gap-2 md:gap-4" role="navigation" aria-label="Main navigation">
+                                    <button 
+                                        onclick="window.switchView('gigs')" 
+                                        id="gigsNavBtn"
+                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        aria-label="View gigs"
+                                    >
+                                        Gigs
+                                    </button>
+                                    <button 
+                                        onclick="window.switchView('members')" 
+                                        id="membersNavBtn"
+                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        aria-label="View team members"
+                                    >
+                                        Team
+                                    </button>
+                                    <button 
+                                        onclick="window.switchView('resources')" 
+                                        id="resourcesNavBtn"
+                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        aria-label="View resources"
+                                    >
+                                        Resources
+                                    </button>
+                                    <button 
+                                        onclick="window.switchView('profile')" 
+                                        id="profileNavBtn"
+                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        aria-label="View your profile"
+                                    >
+                                        Profile
+                                    </button>
+                                    <button 
+                                        onclick="window.logout()" 
+                                        class="px-4 py-2 bg-white text-black font-bold uppercase text-xs md:text-sm hover:bg-zinc-200 transition-colors rounded"
+                                        aria-label="Logout from your account"
+                                    >
+                                        Logout
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
+                    </header>
+                    
+                    <main class="container mx-auto px-4 py-6 md:py-8" role="main">
+                        <div id="contentArea"></div>
+                    </main>
+                </div>
+            `;
+            
+            setupTouchHandlers();
+            switchView('gigs');
+        }
+        
+        // Mobile touch swipe handlers for calendar navigation
+        function setupTouchHandlers() {
+            document.addEventListener('touchstart', (e) => {
+                touchStartX = e.changedTouches[0].screenX;
+            }, { passive: true });
+
+            document.addEventListener('touchend', (e) => {
+                touchEndX = e.changedTouches[0].screenX;
+                // Swipe functionality disabled per user request
+                // handleSwipe();
+            }, { passive: true });
+        }
+        
+        function handleSwipe() {
+            // Swipe gesture for calendar navigation disabled
+            // Users can use the Previous/Next buttons instead
+            return;
+            
+            /* Original swipe code commented out:
+            const swipeThreshold = 50;
+            const diff = touchStartX - touchEndX;
+            
+            // Only handle swipe in calendar view
+            if (viewMode !== 'calendar') return;
+            
+            if (Math.abs(diff) > swipeThreshold) {
+                if (diff > 0) {
+                    // Swipe left - next month
+                    window.navigateCalendar('next');
+                } else {
+                    // Swipe right - previous month
+                    window.navigateCalendar('prev');
+                }
+            }
+            */
+        }
+
+        window.switchView = function(view) {
+            currentView = view;
+            currentPage = 1; // Reset pagination when switching views
+            
+            // Update nav button states
+            document.getElementById('gigsNavBtn')?.classList.toggle('bg-zinc-800', view === 'gigs');
+            document.getElementById('membersNavBtn')?.classList.toggle('bg-zinc-800', view === 'members');
+            document.getElementById('resourcesNavBtn')?.classList.toggle('bg-zinc-800', view === 'resources');
+            document.getElementById('profileNavBtn')?.classList.toggle('bg-zinc-800', view === 'profile');
+            
+            if (view === 'gigs') {
+                showGigsView();
+            } else if (view === 'members') {
+                showMembersView();
+            } else if (view === 'resources') {
+                showResourcesView();
+            } else if (view === 'profile') {
+                showProfileView();
+            }
+        };
+
+        window.logout = async function() {
+            try {
+                // Unsubscribe from members listener
+                if (membersUnsubscribe) {
+                    membersUnsubscribe();
+                    membersUnsubscribe = null;
+                }
+                await signOut(auth);
+            } catch (error) {
+                console.error('Logout error:', error);
+            }
+        };
+
+        function showGigsView() {
+            const isOwner = currentUser.role === 'owner';
+            
+            // Reset render state to ensure calendar shows up
+            lastRenderedGigsState = null;
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <!-- Mobile-optimized controls -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <h2 class="text-2xl md:text-3xl font-bold text-white uppercase">
+                            ${viewMode === 'list' ? 'Gigs' : 'Gigs Calendar'}
+                        </h2>
+                        <div class="flex flex-wrap gap-2 w-full md:w-auto">
+                            <button 
+                                onclick="window.toggleViewMode('list')" 
+                                id="listViewBtn"
+                                class="px-4 py-2 ${viewMode === 'list' ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors flex-1 md:flex-none"
+                                aria-label="Switch to list view"
+                            >
+                                📋 List
+                            </button>
+                            <button 
+                                onclick="window.toggleViewMode('calendar')" 
+                                id="calendarViewBtn"
+                                class="px-4 py-2 ${viewMode === 'calendar' ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors flex-1 md:flex-none"
+                                aria-label="Switch to calendar view"
+                            >
+                                📅 Calendar
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Filter controls -->
+                    <div class="mb-6 space-y-4">
+                        <div class="flex flex-wrap gap-2">
+                            <button 
+                                onclick="window.toggleMyGigsFilter()" 
+                                id="myGigsBtn"
+                                class="px-4 py-2 ${showMyGigsOnly ? 'bg-green-600 text-white' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors"
+                                aria-pressed="${showMyGigsOnly}"
+                                aria-label="Filter to show only your gigs"
+                            >
+                                ${showMyGigsOnly ? '✓ My Gigs' : 'All Gigs'}
+                            </button>
+                            <button 
+                                onclick="window.refreshGigs()" 
+                                class="px-4 py-2 bg-zinc-800 text-white font-bold uppercase text-xs border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                aria-label="Refresh gigs list"
+                            >
+                                🔄 Refresh
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Calendar navigation (only shown in calendar mode) -->
+                    <div id="calendarNavigation" style="display: ${viewMode === 'calendar' ? 'flex' : 'none'};" class="flex-col sm:flex-row justify-between items-center gap-3 mb-4">
+                        <button 
+                            onclick="window.navigateCalendar('prev')" 
+                            class="w-full sm:w-auto px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                            aria-label="Go to previous month"
+                        >
+                            ← Previous
+                        </button>
+                        <div class="flex items-center gap-3">
+                            <h3 id="currentMonthLabel" class="text-lg md:text-xl font-bold text-white text-center"></h3>
+                            <button 
+                                onclick="window.goToToday()" 
+                                class="px-3 py-1 bg-blue-600 text-white font-bold text-xs uppercase hover:bg-blue-700 transition-colors"
+                                aria-label="Go to current month"
+                            >
+                                Today
+                            </button>
+                        </div>
+                        <button 
+                            onclick="window.navigateCalendar('next')" 
+                            class="w-full sm:w-auto px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                            aria-label="Go to next month"
+                        >
+                            Next →
+                        </button>
+                    </div>
+                    
+                    <div id="gigsContainer" role="region" aria-label="Gigs list" aria-live="polite"></div>
+                    
+                    <!-- Pagination controls (only shown in list mode) -->
+                    <div id="paginationContainer" class="mt-6"></div>
+                    
+                    <!-- Past gigs section (only in list mode) -->
+                    <div id="pastGigsSection" style="display: ${viewMode === 'list' ? 'block' : 'none'};" class="mt-8">
+                        <h2 class="text-2xl font-bold text-white uppercase mb-4">Past Gigs</h2>
+                        <div id="pastGigsContainer"></div>
+                    </div>
+                </div>
+            `;
+            
+            renderGigs();
+        }
+
+        window.toggleViewMode = function(mode) {
+            if (mode) {
+                viewMode = mode;
+            } else {
+                viewMode = viewMode === 'list' ? 'calendar' : 'list';
+            }
+            currentPage = 1; // Reset pagination
+            lastRenderedGigsState = null; // Force re-render
+            
+            // Update button styles
+            const listBtn = document.getElementById('listViewBtn');
+            const calBtn = document.getElementById('calendarViewBtn');
+            if (listBtn && calBtn) {
+                listBtn.className = `px-4 py-2 ${viewMode === 'list' ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors flex-1 md:flex-none`;
+                calBtn.className = `px-4 py-2 ${viewMode === 'calendar' ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors flex-1 md:flex-none`;
+            }
+            
+            // Show/hide calendar navigation and past gigs
+            const calendarNav = document.getElementById('calendarNavigation');
+            const pastGigsSection = document.getElementById('pastGigsSection');
+            if (calendarNav) {
+                calendarNav.style.display = viewMode === 'calendar' ? 'flex' : 'none';
+            }
+            if (pastGigsSection) {
+                pastGigsSection.style.display = viewMode === 'list' ? 'block' : 'none';
+            }
+            
+            renderGigs();
+        };
+
+        window.toggleMyGigsFilter = function() {
+            showMyGigsOnly = !showMyGigsOnly;
+            currentPage = 1; // Reset to first page when filtering
+            lastRenderedGigsState = null; // Force re-render
+            
+            const btn = document.getElementById('myGigsBtn');
+            if (btn) {
+                btn.className = `px-4 py-2 ${showMyGigsOnly ? 'bg-green-600 text-white' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold uppercase text-xs hover:bg-zinc-200 transition-colors`;
+                btn.textContent = showMyGigsOnly ? '✓ My Gigs' : 'All Gigs';
+                btn.setAttribute('aria-pressed', showMyGigsOnly);
+            }
+            
+            renderGigs();
+        };
+
+        window.refreshGigs = function() {
+            // Update button to show loading state
+            const refreshBtn = document.querySelector('[onclick="window.refreshGigs()"]');
+            if (refreshBtn) {
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '⏳ Refreshing...';
+                refreshBtn.setAttribute('aria-busy', 'true');
+            }
+            
+            // Reset the render state to force a re-render after loading
+            lastRenderedGigsState = null;
+            gigsCache = null;
+            gigsCacheTimestamp = null;
+            
+            // Load gigs and restore button state
+            loadGigsFromSheet(true).finally(() => {
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = '🔄 Refresh';
+                    refreshBtn.setAttribute('aria-busy', 'false');
+                }
+            });
+        };
+        
+        // Helper function to check if current user matches a member name
+        window.isCurrentUserMember = function(memberName) {
+            if (!memberName || !currentUser) return false;
+            
+            const userName = currentUser.name?.toLowerCase().trim() || '';
+            const memberNameLower = memberName.toLowerCase().trim();
+            
+            // Exact match
+            if (memberNameLower === userName) return true;
+            
+            // Check if user name is contained in member name
+            if (memberNameLower.includes(userName)) return true;
+            
+            // Check if member name is contained in user name
+            if (userName.includes(memberNameLower)) return true;
+            
+            // Split names and check individual parts
+            const userParts = userName.split(/[\s@._-]+/);
+            const memberParts = memberNameLower.split(/[\s@._-]+/);
+            
+            // Check first name + last name match
+            for (const userPart of userParts) {
+                if (userPart.length > 2) {
+                    for (const memberPart of memberParts) {
+                        if (memberPart.length > 2 && 
+                            (userPart === memberPart || userPart.includes(memberPart) || memberPart.includes(userPart))) {
+                            return true;
+                        }
+                    }
+                }
+            }
+            
+            return false;
+        };
+        
+        // Mark member as N/A for a gig
+        window.markAsNA = async function(gigId, type, index, memberName, role) {
+            const gig = gigs.find(g => g.id === gigId);
+            if (!gig) {
+                alert('Gig not found');
+                return;
+            }
+            
+            const confirmMsg = `Are you sure you want to mark yourself as N/A for "${gig.eventName}" on ${gig.date}?\n\nThis will notify booking@thebarnstorm.com that a sub is needed.`;
+            
+            if (!confirm(confirmMsg)) return;
+            
+            try {
+                // Show loading state
+                const modal = document.querySelector('[role="dialog"]');
+                if (modal) {
+                    const btn = modal.querySelector(`button[onclick*="markAsNA"]`);
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.textContent = '...';
+                    }
+                }
+                
+                // Build URL with parameters (GET request for CORS compatibility)
+                const params = new URLSearchParams({
+                    action: 'markNA',
+                    gigId: gigId,
+                    gigDate: gig.date,
+                    eventName: gig.eventName || '',
+                    venue: gig.venue || '',
+                    type: type,
+                    memberIndex: index,
+                    memberName: memberName,
+                    role: role || '',
+                    userEmail: currentUser.email
+                });
+                
+                const response = await fetch(`${GOOGLE_SHEET_API_URL}?${params.toString()}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert('You have been marked as N/A. An email has been sent to booking@thebarnstorm.com.');
+                    
+                    // Update local gigs data to reflect the change
+                    if (type === 'musician' && gig.musicians && gig.musicians[index]) {
+                        gig.musicians[index].isNA = true;
+                        gig.musicians[index].originalName = memberName;
+                    } else if (type === 'production' && gig.production && gig.production[index]) {
+                        gig.production[index].isNA = true;
+                        gig.production[index].originalName = memberName;
+                    }
+                    
+                    // Clear cache to force refresh on next load
+                    gigsCache = null;
+                    gigsCacheTimestamp = null;
+                    
+                    // Refresh the gig detail modal
+                    modal?.remove();
+                    window.showGigDetail(gigId);
+                } else {
+                    throw new Error(result.error || 'Failed to update');
+                }
+            } catch (error) {
+                console.error('Error marking as N/A:', error);
+                alert('Error marking as N/A: ' + error.message + '\n\nPlease contact booking@thebarnstorm.com directly.');
+            }
+        };
+        
+        function getFilteredGigs() {
+            let filtered = gigs;
+            
+            // Apply "My Gigs" filter
+            if (showMyGigsOnly) {
+                const userName = currentUser.name;
+                
+                console.log('Filtering for user:', userName);
+                console.log('Total gigs before My Gigs filter:', filtered.length);
+                
+                filtered = filtered.filter(gig => {
+                    const musicians = gig.musicians || [];
+                    const production = gig.production || [];
+                    
+                    // Check if current user's name matches any musician or production member
+                    const isMusician = musicians.some(m => {
+                        const memberName = (m.memberName || '').toLowerCase().trim();
+                        const userNameLower = userName.toLowerCase().trim();
+                        
+                        // Exact match
+                        if (memberName === userNameLower) return true;
+                        
+                        // Check if user name is contained in member name
+                        if (memberName.includes(userNameLower)) return true;
+                        
+                        // Check if member name is contained in user name
+                        if (userNameLower.includes(memberName)) return true;
+                        
+                        // Split names and check individual parts
+                        const userParts = userNameLower.split(/[\s@._-]+/);
+                        const memberParts = memberName.split(/[\s@._-]+/);
+                        
+                        // If any significant part matches (longer than 2 chars)
+                        for (const userPart of userParts) {
+                            if (userPart.length > 2) {
+                                for (const memberPart of memberParts) {
+                                    if (memberPart.length > 2 && 
+                                        (userPart.includes(memberPart) || memberPart.includes(userPart))) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return false;
+                    });
+                    
+                    const isProduction = production.some(p => {
+                        const memberName = (p.memberName || '').toLowerCase().trim();
+                        const userNameLower = userName.toLowerCase().trim();
+                        
+                        // Same matching logic
+                        if (memberName === userNameLower) return true;
+                        if (memberName.includes(userNameLower)) return true;
+                        if (userNameLower.includes(memberName)) return true;
+                        
+                        const userParts = userNameLower.split(/[\s@._-]+/);
+                        const memberParts = memberName.split(/[\s@._-]+/);
+                        
+                        for (const userPart of userParts) {
+                            if (userPart.length > 2) {
+                                for (const memberPart of memberParts) {
+                                    if (memberPart.length > 2 && 
+                                        (userPart.includes(memberPart) || memberPart.includes(userPart))) {
+                                        return true;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        return false;
+                    });
+                    
+                    return isMusician || isProduction;
+                });
+                
+                console.log('Filtered gigs count after My Gigs:', filtered.length);
+                
+                if (filtered.length === 0) {
+                    console.warn('No gigs found for user:', userName);
+                    console.warn('Make sure your Firebase display name matches a name in the Google Sheet');
+                }
+            }
+            
+            return filtered;
+        }
+
+        function renderGigs() {
+            const container = document.getElementById('gigsContainer');
+            if (!container) return;
+
+            const filteredGigs = getFilteredGigs();
+            const today = new Date().toISOString().split('T')[0];
+
+            // Create a state signature to check if we need to re-render
+            const currentState = JSON.stringify({
+                gigs: filteredGigs.map(g => g.id || g.date),
+                viewMode,
+                currentPage,
+                itemsPerPage,
+                showMyGigsOnly,
+                calendarMonth: viewMode === 'calendar' ? `${currentCalendarDate.getFullYear()}-${currentCalendarDate.getMonth()}` : null
+            });
+            
+            // Skip render if nothing changed
+            if (currentState === lastRenderedGigsState) {
+                console.log('Skipping render - no changes detected');
+                return;
+            }
+            
+            lastRenderedGigsState = currentState;
+
+            if (viewMode === 'calendar') {
+                renderCalendar(container, filteredGigs);
+            } else {
+                renderList(container, filteredGigs, today);
+            }
+        }
+
+        function renderList(container, filteredGigs, today) {
+            const upcoming = filteredGigs.filter(g => g.date >= today).sort((a, b) => a.date.localeCompare(b.date));
+            const past = filteredGigs.filter(g => g.date < today).sort((a, b) => b.date.localeCompare(a.date));
+            
+            // Pagination logic for upcoming gigs
+            totalPages = Math.ceil(upcoming.length / itemsPerPage);
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            const paginatedGigs = upcoming.slice(startIndex, endIndex);
+            
+            if (paginatedGigs.length === 0 && showMyGigsOnly) {
+                container.innerHTML = `
+                    <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
+                        <p class="text-white text-lg mb-2">No upcoming gigs found for you</p>
+                        <p class="text-zinc-400 text-sm mb-4">Your name: <strong>${escapeHtml(currentUser.name)}</strong></p>
+                        <p class="text-zinc-500 text-xs">Make sure your name in Firebase matches a name in the Google Sheet lineup.</p>
+                    </div>
+                `;
+                document.getElementById('paginationContainer').innerHTML = '';
+            } else if (paginatedGigs.length === 0) {
+                container.innerHTML = '<p class="text-zinc-500 text-center py-8">No upcoming gigs found</p>';
+                document.getElementById('paginationContainer').innerHTML = '';
+            } else {
+                container.innerHTML = `
+                    <div class="space-y-4" role="list">
+                        ${paginatedGigs.map(g => renderGigCard(g)).join('')}
+                    </div>
+                `;
+                renderPagination();
+            }
+            
+            // Render past gigs (no pagination)
+            const pastContainer = document.getElementById('pastGigsContainer');
+            if (pastContainer) {
+                if (past.length === 0) {
+                    pastContainer.innerHTML = '<p class="text-zinc-500">No past gigs</p>';
+                } else {
+                    pastContainer.innerHTML = `
+                        <div class="space-y-4" role="list">
+                            ${past.map(g => renderGigCard(g, true)).join('')}
+                        </div>
+                    `;
+                }
+            }
+        }
+        
+        // FIX 2 & 3: Simplified list view - only shows date, name, venue, location, and type
+        // Clicking goes directly to detail modal (no preview)
+        function renderGigCard(g, isPast = false) {
+            const isOwner = currentUser.role === 'owner';
+            const gigDate = new Date(g.date + 'T00:00:00');
+            const formattedDate = gigDate.toLocaleDateString('en-US', { 
+                weekday: 'short', 
+                year: 'numeric', 
+                month: 'short', 
+                day: 'numeric' 
+            });
+            
+            return `
+                <article 
+                    class="bg-zinc-900 border border-zinc-800 p-4 md:p-6 hover:border-zinc-700 transition-colors cursor-pointer ${isPast ? 'opacity-60' : ''}"
+                    role="listitem"
+                    aria-label="Gig on ${formattedDate} at ${escapeHtml(g.venue || 'Unknown venue')}"
+                    onclick="window.showGigDetail('${g.id}')"
+                >
+                    <div class="flex justify-between items-start gap-4">
+                        <div class="flex-1 min-w-0">
+                            <time datetime="${g.date}" class="text-zinc-400 text-xs md:text-sm uppercase block mb-2">
+                                ${formattedDate}
+                            </time>
+                            <h3 class="text-xl md:text-2xl font-bold text-white mb-2 break-words">${escapeHtml(g.eventName || 'Event TBA')}</h3>
+                            <p class="text-white text-sm md:text-base mb-1">${escapeHtml(g.venue || '')}</p>
+                            ${g.address ? `<p class="text-zinc-400 text-sm">${escapeHtml(g.address)}</p>` : ''}
+                        </div>
+                        ${g.type ? `
+                            <span class="px-3 py-1 bg-black border border-zinc-700 text-zinc-400 text-xs uppercase flex-shrink-0">
+                                ${escapeHtml(g.type)}
+                            </span>
+                        ` : ''}
+                    </div>
+                </article>
+            `;
+        }
+        
+        function renderPagination() {
+            const container = document.getElementById('paginationContainer');
+            if (!container || totalPages <= 1) {
+                if (container) container.innerHTML = '';
+                return;
+            }
+            
+            const maxVisiblePages = 5;
+            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+            
+            if (endPage - startPage < maxVisiblePages - 1) {
+                startPage = Math.max(1, endPage - maxVisiblePages + 1);
+            }
+            
+            const pages = [];
+            for (let i = startPage; i <= endPage; i++) {
+                pages.push(i);
+            }
+            
+            container.innerHTML = `
+                <nav class="flex justify-center items-center" role="navigation" aria-label="Gigs pagination">
+                    <div class="pagination-controls">
+                        <button 
+                            onclick="window.goToPage(1)" 
+                            ${currentPage === 1 ? 'disabled' : ''}
+                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+                            aria-label="Go to first page"
+                        >
+                            ⏮️
+                        </button>
+                        <button 
+                            onclick="window.goToPage(${currentPage - 1})" 
+                            ${currentPage === 1 ? 'disabled' : ''}
+                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+                            aria-label="Go to previous page"
+                        >
+                            ◀️
+                        </button>
+                        
+                        ${pages.map(page => `
+                            <button 
+                                onclick="window.goToPage(${page})" 
+                                class="px-3 py-2 ${page === currentPage ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700'} font-bold text-sm transition-colors rounded"
+                                aria-label="Go to page ${page}"
+                                ${page === currentPage ? 'aria-current="page"' : ''}
+                            >
+                                ${page}
+                            </button>
+                        `).join('')}
+                        
+                        <button 
+                            onclick="window.goToPage(${currentPage + 1})" 
+                            ${currentPage === totalPages ? 'disabled' : ''}
+                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+                            aria-label="Go to next page"
+                        >
+                            ▶️
+                        </button>
+                        <button 
+                            onclick="window.goToPage(${totalPages})" 
+                            ${currentPage === totalPages ? 'disabled' : ''}
+                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
+                            aria-label="Go to last page"
+                        >
+                            ⏭️
+                        </button>
+                    </div>
+                    <div class="ml-4 text-zinc-400 text-sm" role="status" aria-live="polite">
+                        Page ${currentPage} of ${totalPages}
+                    </div>
+                </nav>
+            `;
+        }
+        
+        window.goToPage = function(page) {
+            if (page < 1 || page > totalPages) return;
+            currentPage = page;
+            
+            // Scroll to top of gigs container
+            const container = document.getElementById('gigsContainer');
+            if (container) {
+                container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            
+            renderGigs();
+        };
+
+        function renderCalendar(container, filteredGigs) {
+            const year = currentCalendarDate.getFullYear();
+            const month = currentCalendarDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startDay = firstDay.getDay();
+            
+            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'];
+            
+            // Update month label in the navigation
+            const monthLabel = document.getElementById('currentMonthLabel');
+            if (monthLabel) {
+                monthLabel.textContent = `${monthNames[month]} ${year}`;
+            }
+            
+            const gigsByDate = {};
+            filteredGigs.forEach(g => {
+                const date = new Date(g.date + 'T00:00:00');
+                if (date.getFullYear() === year && date.getMonth() === month) {
+                    const day = date.getDate();
+                    if (!gigsByDate[day]) gigsByDate[day] = [];
+                    gigsByDate[day].push(g);
+                }
+            });
+            
+            container.innerHTML = `
+                <div class="bg-zinc-900 border border-zinc-800 overflow-x-auto">
+                    <div class="grid grid-cols-7 border-b border-zinc-800 min-w-[640px] sm:min-w-0">
+                        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `
+                            <div class="p-2 text-center text-zinc-400 text-xs font-bold uppercase border-r border-zinc-800 last:border-r-0" role="columnheader">${day}</div>
+                        `).join('')}
+                    </div>
+                    <div class="grid grid-cols-7 min-w-[640px] sm:min-w-0" role="grid" aria-label="Calendar for ${monthNames[month]} ${year}">
+                        ${Array(startDay).fill(0).map(() => '<div class="min-h-16 sm:min-h-20 md:min-h-24 p-2 border-r border-b border-zinc-800 bg-black" role="gridcell"></div>').join('')}
+                        
+                        ${Array(daysInMonth).fill(0).map((_, i) => {
+                            const day = i + 1;
+                            const dayOfWeek = (startDay + day - 1) % 7;
+                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            const hasGigs = gigsByDate[day] && gigsByDate[day].length > 0;
+                            const today = new Date();
+                            const cellDate = new Date(year, month, day);
+                            const isToday = today.toDateString() === cellDate.toDateString();
+                            const isPast = cellDate < new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                            
+                            return `
+                                <div 
+                                    class="calendar-day min-h-16 sm:min-h-20 md:min-h-24 p-1 sm:p-2 border-r border-b border-zinc-800 ${isWeekend ? 'bg-zinc-950' : 'bg-black'} ${isToday ? 'ring-2 ring-white' : ''} ${isPast ? 'opacity-50' : ''} ${hasGigs ? 'cursor-pointer hover:bg-zinc-800' : ''} last:border-r-0"
+                                    ${hasGigs ? `onclick="window.handleCalendarDayClick(${year}, ${month}, ${day})"` : ''}
+                                    role="gridcell"
+                                    aria-label="${day} ${monthNames[month]} ${year}${hasGigs ? `, ${gigsByDate[day].length} gig${gigsByDate[day].length > 1 ? 's' : ''}` : ''}"
+                                    ${hasGigs ? 'tabindex="0"' : ''}
+                                >
+                                    <div class="text-zinc-400 text-xs sm:text-sm font-bold mb-1 ${isPast ? 'line-through' : ''}">${day}</div>
+                                    ${hasGigs ? `
+                                        <div class="space-y-1">
+                                            ${gigsByDate[day].slice(0, 2).map(g => `
+                                                <div class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-1 sm:p-1.5 rounded transition-colors ${isPast ? 'opacity-75' : ''}">
+                                                    <div class="text-white text-xs font-bold truncate leading-tight">${escapeHtml(g.eventName || 'Event')}</div>
+                                                    <div class="text-zinc-400 text-xs truncate leading-tight hidden sm:block">${escapeHtml(g.venue || '')}</div>
+                                                </div>
+                                            `).join('')}
+                                            ${gigsByDate[day].length > 2 ? `
+                                                <div class="text-zinc-400 text-xs">+${gigsByDate[day].length - 2} more</div>
+                                            ` : ''}
+                                        </div>
+                                    ` : ''}
+                                </div>
+                            `;
+                        }).join('')}
+                        
+                        ${(() => {
+                            const totalCells = startDay + daysInMonth;
+                            const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+                            return Array(remainingCells).fill(0).map(() => 
+                                '<div class="min-h-16 sm:min-h-20 md:min-h-24 p-2 border-r border-b border-zinc-800 bg-black last:border-r-0" role="gridcell"></div>'
+                            ).join('');
+                        })()}
+                    </div>
+                </div>
+            `;
+            
+            // Clear pagination for calendar view
+            const paginationContainer = document.getElementById('paginationContainer');
+            if (paginationContainer) {
+                paginationContainer.innerHTML = '';
+            }
+        }
+        
+        window.navigateCalendar = function(direction) {
+            if (direction === 'prev') {
+                currentCalendarDate.setMonth(currentCalendarDate.getMonth() - 1);
+            } else {
+                currentCalendarDate.setMonth(currentCalendarDate.getMonth() + 1);
+            }
+            // Reset render state to force re-render with new month
+            lastRenderedGigsState = null;
+            renderGigs();
+        };
+        
+        window.goToToday = function() {
+            currentCalendarDate = new Date();
+            // Reset render state to force re-render
+            lastRenderedGigsState = null;
+            renderGigs();
+        };
+        
+        // Handle clicking on a calendar day - go directly to detail if only 1 gig, otherwise show day modal
+        window.handleCalendarDayClick = function(year, month, day) {
+            const date = new Date(year, month, day);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayGigs = gigs.filter(g => g.date === dateStr);
+            
+            if (dayGigs.length === 0) return;
+            
+            // If only one gig, go directly to detail page
+            if (dayGigs.length === 1) {
+                window.showGigDetail(dayGigs[0].id);
+            } else {
+                // Multiple gigs, show day modal
+                window.showDayGigs(year, month, day);
+            }
+        };
+        
+        window.showDayGigs = function(year, month, day) {
+            const date = new Date(year, month, day);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayGigs = gigs.filter(g => g.date === dateStr);
+            
+            if (dayGigs.length === 0) return;
+            
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-labelledby', 'dayGigsTitle');
+            
+            // Close modal when clicking on background
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+            
+            modal.innerHTML = `
+                <div class="bg-zinc-900 border border-zinc-800 p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 id="dayGigsTitle" class="text-2xl font-bold text-white">
+                            ${date.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                        </h3>
+                        <button 
+                            onclick="this.closest('[role=dialog]').remove()" 
+                            class="text-white hover:text-zinc-400 text-2xl leading-none"
+                            aria-label="Close dialog"
+                        >
+                            ×
+                        </button>
+                    </div>
+                    <div class="space-y-4">
+                        ${dayGigs.map(g => renderGigCard(g)).join('')}
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Focus trap
+            const focusableElements = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (focusableElements.length > 0) {
+                focusableElements[0].focus();
+            }
+        };
+        
+        window.showGigDetail = function(gigId) {
+            const g = gigs.find(x => x.id === gigId);
+            if (!g) return;
+            
+            const gigDate = new Date(g.date + 'T00:00:00');
+            const formattedDate = gigDate.toLocaleDateString('en-US', { 
+                weekday: 'long', 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            });
+            
+            const musicians = g.musicians || [];
+            const production = g.production || [];
+            
+            // Find previous and next gigs
+            const filteredGigs = getFilteredGigs();
+            const sortedGigs = filteredGigs.sort((a, b) => a.date.localeCompare(b.date));
+            const currentIndex = sortedGigs.findIndex(x => x.id === gigId);
+            const prevGig = currentIndex > 0 ? sortedGigs[currentIndex - 1] : null;
+            const nextGig = currentIndex < sortedGigs.length - 1 ? sortedGigs[currentIndex + 1] : null;
+            
+            const modal = document.createElement('div');
+            modal.className = 'fixed inset-0 bg-black bg-opacity-90 flex items-center justify-center p-4 z-50 overflow-y-auto';
+            modal.setAttribute('role', 'dialog');
+            modal.setAttribute('aria-modal', 'true');
+            modal.setAttribute('aria-labelledby', 'gigDetailsTitle');
+            
+            // Close modal when clicking on background
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+            
+            modal.innerHTML = `
+                <div class="bg-zinc-900 border border-zinc-800 p-6 max-w-4xl w-full max-h-[90vh] overflow-y-auto my-4">
+                    <div class="flex justify-between items-start mb-6">
+                        <div class="flex-1">
+                            <time datetime="${g.date}" class="text-zinc-400 text-sm uppercase block mb-2">
+                                ${formattedDate}
+                            </time>
+                            <h2 id="gigDetailsTitle" class="text-3xl font-bold text-white mb-2">${escapeHtml(g.eventName || 'Event')}</h2>
+                            ${g.type ? `
+                                <span class="inline-block px-3 py-1 bg-black border border-zinc-700 text-zinc-400 text-xs uppercase mt-2">
+                                    ${escapeHtml(g.type)}
+                                </span>
+                            ` : ''}
+                        </div>
+                        <button 
+                            onclick="this.closest('[role=dialog]').remove()" 
+                            class="text-white hover:text-zinc-400 text-3xl leading-none flex-shrink-0 ml-4"
+                            aria-label="Close gig details"
+                        >
+                            ×
+                        </button>
+                    </div>
+                    
+                    <!-- Navigation -->
+                    ${(prevGig || nextGig) ? `
+                        <div class="flex gap-2 mb-6">
+                            ${prevGig ? `
+                                <button 
+                                    onclick="this.closest('[role=dialog]').remove(); window.showGigDetail('${prevGig.id}')" 
+                                    class="flex-1 px-4 py-2 bg-zinc-800 text-white font-bold uppercase text-xs border border-zinc-700 hover:bg-zinc-700"
+                                >
+                                    ← Prev
+                                </button>
+                            ` : ''}
+                            ${nextGig ? `
+                                <button 
+                                    onclick="this.closest('[role=dialog]').remove(); window.showGigDetail('${nextGig.id}')" 
+                                    class="flex-1 px-4 py-2 bg-zinc-800 text-white font-bold uppercase text-xs border border-zinc-700 hover:bg-zinc-700"
+                                >
+                                    Next →
+                                </button>
+                            ` : ''}
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Venue & Show Info -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 pb-6 border-b border-zinc-800 mb-6">
+                        <div>
+                            <h3 class="text-xs text-zinc-400 mb-2 uppercase tracking-wider">Venue</h3>
+                            <p class="text-white text-lg font-bold mb-1">${escapeHtml(g.venue || '')}</p>
+                            <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.address || '')}</p>
+                            ${g.address ? `
+                                <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(g.address)}" 
+                                   target="_blank" 
+                                   rel="noopener noreferrer"
+                                   class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white font-bold uppercase text-xs hover:bg-blue-700 transition-colors rounded"
+                                   aria-label="Open venue location in Google Maps">
+                                    📍 Open in Maps
+                                </a>
+                            ` : ''}
+                        </div>
+                        
+                        ${g.bandInfo?.notes || g.bandInfo?.showInfoUrl ? `
+                            <div>
+                                <h3 class="text-xs text-zinc-400 mb-3 uppercase tracking-wider">Show Info</h3>
+                                ${g.bandInfo.showInfoUrl && g.bandInfo.showInfoUrl !== '' ? `
+                                    <a href="${escapeHtml(g.bandInfo.showInfoUrl)}" 
+                                       target="_blank" 
+                                       rel="noopener noreferrer"
+                                       class="inline-flex items-center gap-2 px-4 py-2 bg-white text-black font-bold uppercase text-xs hover:bg-zinc-200 transition-colors rounded"
+                                       aria-label="View show information details">
+                                        View Details →
+                                    </a>
+                                ` : g.bandInfo.notes ? `
+                                    <p class="text-white text-sm">${escapeHtml(g.bandInfo.notes)}</p>
+                                ` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                    
+                    <!-- Additional Services -->
+                    ${g.services && (g.services.ceremony || g.services.cocktailHour || g.services.afterPartyDJ) ? `
+                        <div class="pb-6 border-b border-zinc-800 mb-6">
+                            <h3 class="text-xs text-zinc-400 mb-3 uppercase tracking-wider">Additional Services</h3>
+                            <div class="flex flex-wrap gap-2">
+                                ${g.services.ceremony && g.services.ceremony !== 'NO' ? `
+                                    <span class="px-3 py-2 bg-black border border-zinc-700 text-white text-sm rounded">
+                                        💒 Ceremony${g.services.ceremony !== 'YES' ? ': ' + escapeHtml(g.services.ceremony) : ''}
+                                    </span>
+                                ` : ''}
+                                ${g.services.cocktailHour && g.services.cocktailHour !== 'NO' ? `
+                                    <span class="px-3 py-2 bg-black border border-zinc-700 text-white text-sm rounded">
+                                        🍸 Cocktail Hour${g.services.cocktailHour !== 'YES' ? ': ' + escapeHtml(g.services.cocktailHour) : ''}
+                                    </span>
+                                ` : ''}
+                                ${g.services.afterPartyDJ && g.services.afterPartyDJ !== 'NO' ? `
+                                    <span class="px-3 py-2 bg-black border border-zinc-700 text-white text-sm rounded">
+                                        🎧 After Party DJ${g.services.afterPartyDJ !== 'YES' ? ': ' + escapeHtml(g.services.afterPartyDJ) : ''}
+                                    </span>
+                                ` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Musicians & Production -->
+                    ${musicians.length > 0 || production.length > 0 ? `
+                        <div class="pb-6 border-b border-zinc-800 mb-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                ${musicians.length > 0 ? `
+                                    <div>
+                                        <h3 class="text-xs text-zinc-400 mb-4 uppercase tracking-wider">Musicians (${musicians.length})</h3>
+                                        <div class="space-y-2">
+                                            ${musicians.map((m, index) => {
+                                                const member = members.find(x => x.name === m.memberName);
+                                                const isCurrentUser = window.isCurrentUserMember(m.memberName);
+                                                const needsSub = m.memberName?.toUpperCase().includes('NEED');
+                                                const isNA = m.isNA === true;
+                                                return `
+                                                    <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
+                                                        ${member?.photoURL && !needsSub && !isNA ? `
+                                                            <img src="${member.photoURL}" alt="${escapeHtml(m.memberName)}" class="w-12 h-12 object-cover border border-zinc-700 rounded-full flex-shrink-0" loading="lazy">
+                                                        ` : `
+                                                            <div class="w-12 h-12 ${needsSub ? 'bg-yellow-900' : isNA ? 'bg-red-900' : 'bg-zinc-800'} border border-zinc-700 rounded-full flex items-center justify-center flex-shrink-0">
+                                                                <span class="text-zinc-500 text-lg">${needsSub ? '⚠️' : isNA ? '❌' : '🎵'}</span>
+                                                            </div>
+                                                        `}
+                                                        <div class="flex-1 min-w-0">
+                                                            <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
+                                                                ${needsSub ? 'NEED SUB' : escapeHtml(m.memberName)}
+                                                                ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
+                                                            </p>
+                                                            <p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>
+                                                        </div>
+                                                        ${isCurrentUser && !isNA ? `
+                                                            <button 
+                                                                onclick="window.markAsNA('${g.id}', 'musician', ${index}, '${escapeHtml(m.memberName)}', '${escapeHtml(m.instrument || '')}')"
+                                                                class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
+                                                                title="Mark yourself as unavailable for this gig"
+                                                            >
+                                                                N/A for this gig?
+                                                            </button>
+                                                        ` : ''}
+                                                    </div>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                
+                                ${production.length > 0 ? `
+                                    <div>
+                                        <h3 class="text-xs text-zinc-400 mb-4 uppercase tracking-wider">Production Team (${production.length})</h3>
+                                        <div class="space-y-2">
+                                            ${production.map((p, index) => {
+                                                const member = members.find(x => x.name === p.memberName);
+                                                const isCurrentUser = window.isCurrentUserMember(p.memberName);
+                                                const needsSub = p.memberName?.toUpperCase().includes('NEED');
+                                                const isNA = p.isNA === true;
+                                                return `
+                                                    <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
+                                                        ${member?.photoURL && !needsSub && !isNA ? `
+                                                            <img src="${member.photoURL}" alt="${escapeHtml(p.memberName)}" class="w-12 h-12 object-cover border border-zinc-700 rounded-full flex-shrink-0" loading="lazy">
+                                                        ` : `
+                                                            <div class="w-12 h-12 ${needsSub ? 'bg-yellow-900' : isNA ? 'bg-red-900' : 'bg-zinc-800'} border border-zinc-700 rounded-full flex items-center justify-center flex-shrink-0">
+                                                                <span class="text-zinc-500 text-lg">${needsSub ? '⚠️' : isNA ? '❌' : '🎬'}</span>
+                                                            </div>
+                                                        `}
+                                                        <div class="flex-1 min-w-0">
+                                                            <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
+                                                                ${needsSub ? 'NEED SUB' : escapeHtml(p.memberName)}
+                                                                ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
+                                                            </p>
+                                                            <p class="text-zinc-400 text-xs truncate">${escapeHtml(p.role || '')}</p>
+                                                        </div>
+                                                        ${isCurrentUser && !isNA ? `
+                                                            <button 
+                                                                onclick="window.markAsNA('${g.id}', 'production', ${index}, '${escapeHtml(p.memberName)}', '${escapeHtml(p.role || '')}')"
+                                                                class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
+                                                                title="Mark yourself as unavailable for this gig"
+                                                            >
+                                                                N/A for this gig?
+                                                            </button>
+                                                        ` : ''}
+                                                    </div>
+                                                `;
+                                            }).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Timing -->
+                    ${g.timing?.bandArrival ? `
+                        <div class="pb-6 border-b border-zinc-800 mb-6">
+                            <h3 class="text-xs text-zinc-400 mb-3 uppercase tracking-wider">Timing</h3>
+                            <p class="text-zinc-400">Band Arrival: <time class="text-white font-bold">${escapeHtml(g.timing.bandArrival)}</time></p>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Notes -->
+                    ${g.notes ? `
+                        <div>
+                            <h3 class="text-xs text-zinc-400 mb-3 uppercase tracking-wider">Notes</h3>
+                            <p class="text-white whitespace-pre-wrap">${escapeHtml(g.notes)}</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Focus first focusable element
+            const focusableElements = modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+            if (focusableElements.length > 0) {
+                focusableElements[0].focus();
+            }
+        };
+
+        function showMembersView() {
+            const isOwner = currentUser.role === 'owner';
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <h2 class="text-2xl md:text-3xl font-bold text-white uppercase">Team Members</h2>
+                        ${isOwner ? `
+                            <button 
+                                onclick="window.showMemberForm()" 
+                                class="w-full md:w-auto px-6 py-3 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors"
+                                aria-label="Add new team member"
+                            >
+                                + Add Member
+                            </button>
+                        ` : ''}
+                    </div>
+                    <div id="membersGrid" class="space-y-3" role="list" aria-label="Team members">
+                        ${members.length === 0 ? '<p class="text-zinc-500">No team members found</p>' : ''}
+                    </div>
+                </div>
+            `;
+            renderMembers();
+        }
+
+        function showResourcesView() {
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white uppercase mb-6">Resources</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <a 
+                            href="https://thebarnstorm.com" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            class="bg-zinc-900 border border-zinc-800 p-6 hover:border-zinc-700 transition-colors group"
+                        >
+                            <div class="flex items-center gap-3 mb-3">
+                                <span class="text-2xl">🌐</span>
+                                <h3 class="text-lg font-bold text-white group-hover:text-zinc-300">Official Website</h3>
+                            </div>
+                            <p class="text-zinc-400 text-sm mb-2">The Barnstorm's main website</p>
+                            <p class="text-zinc-500 text-xs break-all">thebarnstorm.com</p>
+                        </a>
+
+                        <a 
+                            href="https://www.youtube.com/@TheBarnstorm" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            class="bg-zinc-900 border border-zinc-800 p-6 hover:border-zinc-700 transition-colors group"
+                        >
+                            <div class="flex items-center gap-3 mb-3">
+                                <span class="text-2xl">📹</span>
+                                <h3 class="text-lg font-bold text-white group-hover:text-zinc-300">YouTube Page</h3>
+                            </div>
+                            <p class="text-zinc-400 text-sm mb-2">Watch our performances and videos</p>
+                            <p class="text-zinc-500 text-xs break-all">youtube.com/@TheBarnstorm</p>
+                        </a>
+
+                        <a 
+                            href="https://thebarnstorm.my.canva.site/weddings" 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            class="bg-zinc-900 border border-zinc-800 p-6 hover:border-zinc-700 transition-colors group"
+                        >
+                            <div class="flex items-center gap-3 mb-3">
+                                <span class="text-2xl">💍</span>
+                                <h3 class="text-lg font-bold text-white group-hover:text-zinc-300">Weddings Pitch Deck</h3>
+                            </div>
+                            <p class="text-zinc-400 text-sm mb-2">Our wedding services presentation</p>
+                            <p class="text-zinc-500 text-xs break-all">thebarnstorm.my.canva.site/weddings</p>
+                        </a>
+                    </div>
+                </div>
+            `;
+        }
+
+        function showProfileView() {
+            // Find the current user's member record by email
+            const userMember = members.find(m => m.email?.toLowerCase() === currentUser.email?.toLowerCase());
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div class="max-w-2xl">
+                    <h2 class="text-2xl md:text-3xl font-bold text-white uppercase mb-6">My Profile</h2>
+                    
+                    <!-- Current Info -->
+                    <div class="bg-zinc-900 border border-zinc-800 p-6 mb-6">
+                        <div class="flex items-center gap-4 mb-4">
+                            ${userMember?.photoURL ? `
+                                <img src="${userMember.photoURL}" alt="Your profile photo" class="w-20 h-20 object-cover border border-zinc-700 rounded">
+                            ` : `
+                                <div class="w-20 h-20 bg-zinc-800 border border-zinc-700 rounded flex items-center justify-center">
+                                    <span class="text-zinc-500 text-3xl">👤</span>
+                                </div>
+                            `}
+                            <div>
+                                <h3 class="text-xl font-bold text-white">${escapeHtml(currentUser.name)}</h3>
+                                <p class="text-zinc-400 text-sm">${escapeHtml(currentUser.email)}</p>
+                                ${userMember?.instrument ? `<p class="text-zinc-500 text-xs mt-1">${escapeHtml(userMember.instrument)}</p>` : ''}
+                            </div>
+                        </div>
+                        ${!userMember ? `
+                            <p class="text-yellow-500 text-sm">⚠️ No team member profile found for your email. Contact an admin to set up your profile.</p>
+                        ` : ''}
+                    </div>
+                    
+                    <!-- Update Photo Section -->
+                    ${userMember ? `
+                        <div class="bg-zinc-900 border border-zinc-800 p-6 mb-6">
+                            <h3 class="text-lg font-bold text-white uppercase mb-4">Update Photo</h3>
+                            <form id="photoForm" onsubmit="return false;" class="space-y-4">
+                                <div>
+                                    <label for="profilePhotoUrl" class="block text-white mb-2 text-xs uppercase">Photo URL</label>
+                                    <input 
+                                        type="url" 
+                                        id="profilePhotoUrl" 
+                                        value="${escapeHtml(userMember?.photoURL || '')}"
+                                        placeholder="https://example.com/photo.jpg"
+                                        class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                    >
+                                    <p class="text-zinc-500 text-xs mt-1">Paste a direct link to your photo</p>
+                                </div>
+                                <div>
+                                    <label for="profilePhotoFile" class="block text-white mb-2 text-xs uppercase">Or Upload Photo</label>
+                                    <input 
+                                        type="file" 
+                                        id="profilePhotoFile" 
+                                        accept="image/*"
+                                        class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                    >
+                                </div>
+                                <button 
+                                    type="submit"
+                                    onclick="window.updateProfilePhoto('${userMember?.id}')"
+                                    class="px-6 py-3 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors"
+                                >
+                                    Update Photo
+                                </button>
+                            </form>
+                        </div>
+                    ` : ''}
+                    
+                    <!-- Change Password Section -->
+                    <div class="bg-zinc-900 border border-zinc-800 p-6">
+                        <h3 class="text-lg font-bold text-white uppercase mb-4">Change Password</h3>
+                        <form id="passwordForm" onsubmit="return false;" class="space-y-4">
+                            <div>
+                                <label for="currentPassword" class="block text-white mb-2 text-xs uppercase">Current Password <span aria-label="required">*</span></label>
+                                <input 
+                                    type="password" 
+                                    id="currentPassword" 
+                                    required
+                                    autocomplete="current-password"
+                                    class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                >
+                            </div>
+                            <div>
+                                <label for="newPassword" class="block text-white mb-2 text-xs uppercase">New Password <span aria-label="required">*</span></label>
+                                <input 
+                                    type="password" 
+                                    id="newPassword" 
+                                    required
+                                    minlength="6"
+                                    autocomplete="new-password"
+                                    class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                >
+                                <p class="text-zinc-500 text-xs mt-1">Minimum 6 characters</p>
+                            </div>
+                            <div>
+                                <label for="confirmPassword" class="block text-white mb-2 text-xs uppercase">Confirm New Password <span aria-label="required">*</span></label>
+                                <input 
+                                    type="password" 
+                                    id="confirmPassword" 
+                                    required
+                                    minlength="6"
+                                    autocomplete="new-password"
+                                    class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                                >
+                            </div>
+                            <div id="passwordError" class="text-red-500 text-sm hidden" role="alert"></div>
+                            <div id="passwordSuccess" class="text-green-500 text-sm hidden" role="status"></div>
+                            <button 
+                                type="submit"
+                                onclick="window.updateUserPassword()"
+                                class="px-6 py-3 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors"
+                            >
+                                Change Password
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            `;
+        }
+
+        window.updateProfilePhoto = async function(memberId) {
+            if (!memberId) {
+                alert('No member profile found for your account');
+                return;
+            }
+            
+            const photoURL = document.getElementById('profilePhotoUrl').value.trim();
+            const photoFile = document.getElementById('profilePhotoFile').files[0];
+            
+            if (!photoURL && !photoFile) {
+                alert('Please provide a photo URL or upload a file');
+                return;
+            }
+            
+            try {
+                let finalPhotoURL = photoURL;
+                
+                if (photoFile) {
+                    const storageRef = ref(storage, `members/${Date.now()}_${photoFile.name}`);
+                    await uploadBytes(storageRef, photoFile);
+                    finalPhotoURL = await getDownloadURL(storageRef);
+                }
+                
+                await updateDoc(doc(db, 'members', memberId), {
+                    photoURL: finalPhotoURL
+                });
+                
+                alert('Photo updated successfully!');
+                showProfileView(); // Refresh the view
+            } catch (error) {
+                alert('Error updating photo: ' + error.message);
+            }
+        };
+
+        window.updateUserPassword = async function() {
+            const currentPassword = document.getElementById('currentPassword').value;
+            const newPassword = document.getElementById('newPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+            const errorDiv = document.getElementById('passwordError');
+            const successDiv = document.getElementById('passwordSuccess');
+            
+            // Hide previous messages
+            errorDiv.classList.add('hidden');
+            successDiv.classList.add('hidden');
+            
+            // Validation
+            if (newPassword !== confirmPassword) {
+                errorDiv.textContent = 'New passwords do not match';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            if (newPassword.length < 6) {
+                errorDiv.textContent = 'Password must be at least 6 characters';
+                errorDiv.classList.remove('hidden');
+                return;
+            }
+            
+            try {
+                const user = auth.currentUser;
+                
+                // Re-authenticate the user first
+                const credential = EmailAuthProvider.credential(user.email, currentPassword);
+                await reauthenticateWithCredential(user, credential);
+                
+                // Update password
+                await updatePassword(user, newPassword);
+                
+                successDiv.textContent = 'Password changed successfully!';
+                successDiv.classList.remove('hidden');
+                
+                // Clear form
+                document.getElementById('currentPassword').value = '';
+                document.getElementById('newPassword').value = '';
+                document.getElementById('confirmPassword').value = '';
+            } catch (error) {
+                if (error.code === 'auth/wrong-password') {
+                    errorDiv.textContent = 'Current password is incorrect';
+                } else if (error.code === 'auth/weak-password') {
+                    errorDiv.textContent = 'New password is too weak';
+                } else {
+                    errorDiv.textContent = 'Error changing password: ' + error.message;
+                }
+                errorDiv.classList.remove('hidden');
+            }
+        };
+
+        function renderMembers() {
+            const grid = document.getElementById('membersGrid');
+            if (!grid) return;
+            
+            const isOwner = currentUser.role === 'owner';
+            
+            grid.innerHTML = members.map(m => `
+                <article 
+                    class="bg-zinc-900 border border-zinc-800 p-4 hover:border-zinc-700 transition-colors flex items-center gap-4"
+                    role="listitem"
+                    aria-label="Team member ${escapeHtml(m.name)}"
+                >
+                    ${m.photoURL ? `
+                        <img 
+                            src="${m.photoURL}" 
+                            alt="${escapeHtml(m.name)}" 
+                            class="w-16 h-16 object-cover border border-zinc-700 rounded flex-shrink-0"
+                            loading="lazy"
+                        >
+                    ` : `
+                        <div class="w-16 h-16 bg-zinc-800 border border-zinc-700 rounded flex items-center justify-center flex-shrink-0">
+                            <span class="text-zinc-500 text-2xl">👤</span>
+                        </div>
+                    `}
+                    <div class="flex-1 min-w-0">
+                        <h3 class="text-lg font-bold text-white truncate">${escapeHtml(m.name)}</h3>
+                        ${m.instrument ? `<p class="text-zinc-400 text-sm truncate">${escapeHtml(m.instrument)}</p>` : ''}
+                        ${m.email ? `<p class="text-zinc-500 text-xs truncate mt-1">${escapeHtml(m.email)}</p>` : ''}
+                    </div>
+                    ${isOwner ? `
+                        <div class="flex gap-2 flex-shrink-0">
+                            <button 
+                                onclick="window.showMemberForm('${m.id}')" 
+                                class="px-3 py-2 bg-zinc-800 text-white font-bold text-xs uppercase border border-zinc-700 hover:bg-zinc-700"
+                                aria-label="Edit ${escapeHtml(m.name)}"
+                            >
+                                Edit
+                            </button>
+                            <button 
+                                onclick="window.deleteMember('${m.id}')" 
+                                class="px-3 py-2 bg-red-900 text-white font-bold text-xs uppercase hover:bg-red-800"
+                                aria-label="Delete ${escapeHtml(m.name)}"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    ` : ''}
+                </article>
+            `).join('');
+        }
+
+        window.showMemberForm = function(memberId) {
+            const member = memberId ? members.find(m => m.id === memberId) : null;
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div class="max-w-2xl">
+                    <h2 class="text-2xl font-bold text-white mb-6 uppercase">${member ? 'Edit' : 'Add'} Team Member</h2>
+                    <form id="memberForm" class="bg-zinc-900 border border-zinc-800 p-8 space-y-6" onsubmit="return false;">
+                        <div>
+                            <label for="memberName" class="block text-white mb-2 text-xs uppercase">
+                                Name <span aria-label="required">*</span>
+                            </label>
+                            <input 
+                                type="text" 
+                                id="memberName" 
+                                value="${escapeHtml(member?.name || '')}" 
+                                required
+                                aria-required="true"
+                                class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                            >
+                        </div>
+                        <div>
+                            <label for="memberInstrument" class="block text-white mb-2 text-xs uppercase">Instrument/Role</label>
+                            <input 
+                                type="text" 
+                                id="memberInstrument" 
+                                value="${escapeHtml(member?.instrument || '')}" 
+                                class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                            >
+                        </div>
+                        <div>
+                            <label for="memberEmail" class="block text-white mb-2 text-xs uppercase">Email</label>
+                            <input 
+                                type="email" 
+                                id="memberEmail" 
+                                value="${escapeHtml(member?.email || '')}" 
+                                autocomplete="email"
+                                class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                            >
+                        </div>
+                        <div>
+                            <label for="memberPhoto" class="block text-white mb-2 text-xs uppercase">Photo URL</label>
+                            <input 
+                                type="url" 
+                                id="memberPhoto" 
+                                value="${escapeHtml(member?.photoURL || '')}" 
+                                placeholder="https://example.com/photo.jpg" 
+                                class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                            >
+                            <p class="text-zinc-500 text-xs mt-1">Paste a direct link to a profile photo</p>
+                        </div>
+                        <div>
+                            <label for="memberPhotoFile" class="block text-white mb-2 text-xs uppercase">Upload Photo</label>
+                            <input 
+                                type="file" 
+                                id="memberPhotoFile" 
+                                accept="image/*" 
+                                class="w-full px-4 py-3 bg-black border border-zinc-700 text-white focus:outline-none focus:border-white"
+                            >
+                            <p class="text-zinc-500 text-xs mt-1">Or upload a photo from your device</p>
+                        </div>
+                        <div class="flex flex-col md:flex-row gap-4">
+                            <button 
+                                type="submit"
+                                onclick="window.saveMember('${memberId || ''}')" 
+                                class="px-6 py-3 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors"
+                                aria-label="${member ? 'Update' : 'Create'} team member"
+                            >
+                                ${member ? 'Update' : 'Create'}
+                            </button>
+                            <button 
+                                type="button"
+                                onclick="window.switchView('members')" 
+                                class="px-6 py-3 bg-zinc-800 text-white font-bold uppercase text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                                aria-label="Cancel and return to team members list"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            `;
+        };
+
+        window.saveMember = async function(memberId) {
+            const name = document.getElementById('memberName').value.trim();
+            const instrument = document.getElementById('memberInstrument').value.trim();
+            const email = document.getElementById('memberEmail').value.trim();
+            const photoURL = document.getElementById('memberPhoto').value.trim();
+            const photoFile = document.getElementById('memberPhotoFile').files[0];
+
+            if (!name) {
+                alert('Please enter a name');
+                return;
+            }
+
+            try {
+                let finalPhotoURL = photoURL;
+
+                if (photoFile) {
+                    const storageRef = ref(storage, `members/${Date.now()}_${photoFile.name}`);
+                    await uploadBytes(storageRef, photoFile);
+                    finalPhotoURL = await getDownloadURL(storageRef);
+                }
+
+                const memberData = {
+                    name,
+                    instrument,
+                    email,
+                    photoURL: finalPhotoURL
+                };
+
+                if (memberId) {
+                    await updateDoc(doc(db, 'members', memberId), memberData);
+                } else {
+                    await addDoc(collection(db, 'members'), {
+                        ...memberData,
+                        createdAt: new Date().toISOString()
+                    });
+                }
+
+                switchView('members');
+            } catch (error) {
+                alert('Error saving member: ' + error.message);
+            }
+        };
+
+        window.deleteMember = async function(memberId) {
+            if (!confirm('Are you sure you want to delete this team member?')) return;
+
+            try {
+                await deleteDoc(doc(db, 'members', memberId));
+            } catch (error) {
+                alert('Error deleting member: ' + error.message);
+            }
+        };
+        
+        // Placeholder functions for gig management (would need full implementation)
+        window.showGigForm = function() {
+            alert('Gig form implementation needed');
+        };
+        
+        window.editGig = function(gigId) {
+            alert('Edit gig implementation needed for gig: ' + gigId);
+        };
+        
+        window.deleteGig = function(gigId) {
+            if (confirm('Are you sure you want to delete this gig?')) {
+                alert('Delete gig implementation needed for gig: ' + gigId);
+            }
+        };
+    </script>
+</body>
+</html>
