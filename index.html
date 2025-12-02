@@ -728,19 +728,19 @@
                     </div>
                     
                     <!-- Calendar navigation (only shown in calendar mode) -->
-                    <div id="calendarNavigation" style="display: ${viewMode === 'calendar' ? 'flex' : 'none'};" class="flex-col sm:flex-row justify-between items-center gap-3 mb-4">
+                    <div id="calendarNavigation" style="display: ${viewMode === 'calendar' ? 'flex' : 'none'};" class="flex items-center justify-between gap-2 mb-4">
                         <button 
                             onclick="window.navigateCalendar('prev')" 
-                            class="w-full sm:w-auto px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                            class="px-3 md:px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors text-xs md:text-sm"
                             aria-label="Go to previous month"
                         >
-                            ← Previous
+                            ← Prev
                         </button>
-                        <div class="flex items-center gap-3">
-                            <h3 id="currentMonthLabel" class="text-lg md:text-xl font-bold text-white text-center"></h3>
+                        <div class="flex items-center gap-2">
+                            <h3 id="currentMonthLabel" class="text-base md:text-xl font-bold text-white text-center whitespace-nowrap"></h3>
                             <button 
                                 onclick="window.goToToday()" 
-                                class="px-3 py-1 bg-blue-600 text-white font-bold text-xs uppercase hover:bg-blue-700 transition-colors"
+                                class="px-2 md:px-3 py-1 bg-blue-600 text-white font-bold text-xs uppercase hover:bg-blue-700 transition-colors hidden sm:inline-block"
                                 aria-label="Go to current month"
                             >
                                 Today
@@ -748,7 +748,7 @@
                         </div>
                         <button 
                             onclick="window.navigateCalendar('next')" 
-                            class="w-full sm:w-auto px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors"
+                            class="px-3 md:px-4 py-2 bg-zinc-800 text-white font-bold border border-zinc-700 hover:bg-zinc-700 transition-colors text-xs md:text-sm"
                             aria-label="Go to next month"
                         >
                             Next →
@@ -1167,8 +1167,34 @@
             }
             
             container.innerHTML = `
-                <nav class="flex justify-center items-center" role="navigation" aria-label="Gigs pagination">
-                    <div class="pagination-controls">
+                <nav class="flex flex-col gap-4" role="navigation" aria-label="Gigs pagination">
+                    <!-- Items per page selector -->
+                    <div class="flex items-center justify-center gap-2">
+                        <span class="text-zinc-400 text-sm">Items per page:</span>
+                        <div class="flex gap-1">
+                            <button 
+                                onclick="window.changeItemsPerPage(10)" 
+                                class="px-3 py-1 ${itemsPerPage === 10 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
+                            >
+                                10
+                            </button>
+                            <button 
+                                onclick="window.changeItemsPerPage(25)" 
+                                class="px-3 py-1 ${itemsPerPage === 25 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
+                            >
+                                25
+                            </button>
+                            <button 
+                                onclick="window.changeItemsPerPage(50)" 
+                                class="px-3 py-1 ${itemsPerPage === 50 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
+                            >
+                                50
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Page navigation -->
+                    <div class="flex justify-center items-center flex-wrap gap-1">
                         <button 
                             onclick="window.goToPage(1)" 
                             ${currentPage === 1 ? 'disabled' : ''}
@@ -1213,9 +1239,9 @@
                         >
                             ⏭️
                         </button>
-                    </div>
-                    <div class="ml-4 text-zinc-400 text-sm" role="status" aria-live="polite">
-                        Page ${currentPage} of ${totalPages}
+                        <span class="ml-2 text-zinc-400 text-sm whitespace-nowrap" role="status" aria-live="polite">
+                            Page ${currentPage} of ${totalPages}
+                        </span>
                     </div>
                 </nav>
             `;
@@ -1234,16 +1260,25 @@
             renderGigs();
         };
 
+        window.changeItemsPerPage = function(newItemsPerPage) {
+            itemsPerPage = newItemsPerPage;
+            currentPage = 1; // Reset to first page when changing items per page
+            renderGigs();
+        };
+
         function renderCalendar(container, filteredGigs) {
             const year = currentCalendarDate.getFullYear();
             const month = currentCalendarDate.getMonth();
             const firstDay = new Date(year, month, 1);
             const lastDay = new Date(year, month + 1, 0);
             const daysInMonth = lastDay.getDate();
-            const startDay = firstDay.getDay();
             
-            const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
-                'July', 'August', 'September', 'October', 'November', 'December'];
+            // Adjust for Monday start: 0=Sunday becomes 6, 1=Monday becomes 0, etc.
+            let startDay = firstDay.getDay();
+            startDay = startDay === 0 ? 6 : startDay - 1;
+            
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
             
             // Update month label in the navigation
             const monthLabel = document.getElementById('currentMonthLabel');
@@ -1264,7 +1299,7 @@
             container.innerHTML = `
                 <div class="bg-zinc-900 border border-zinc-800 overflow-x-auto">
                     <div class="grid grid-cols-7 border-b border-zinc-800">
-                        ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `
+                        ${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => `
                             <div class="p-2 text-center text-zinc-400 text-xs font-bold uppercase border-r border-zinc-800 last:border-r-0" role="columnheader">${day}</div>
                         `).join('')}
                     </div>
@@ -1273,8 +1308,9 @@
                         
                         ${Array(daysInMonth).fill(0).map((_, i) => {
                             const day = i + 1;
-                            const dayOfWeek = (startDay + day - 1) % 7;
-                            const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+                            // Adjust dayOfWeek for Monday start: Monday=0, Sunday=6
+                            let dayOfWeek = (startDay + day - 1) % 7;
+                            const isWeekend = dayOfWeek === 5 || dayOfWeek === 6; // Saturday or Sunday
                             const hasGigs = gigsByDate[day] && gigsByDate[day].length > 0;
                             const today = new Date();
                             const cellDate = new Date(year, month, day);
