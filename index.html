@@ -6,6 +6,18 @@
     <title>The Barnstorm - Gig Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        /* Prevent horizontal scrolling */
+        html, body {
+            overflow-x: hidden;
+            width: 100%;
+            max-width: 100vw;
+        }
+        
+        /* Ensure all elements use border-box sizing */
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        
         /* Mobile touch optimizations */
         * {
             -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
@@ -61,6 +73,59 @@
             border-width: 0;
         }
         
+        /* Hamburger menu for mobile */
+        .hamburger {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            cursor: pointer;
+            padding: 8px;
+        }
+        
+        .hamburger span {
+            display: block;
+            width: 25px;
+            height: 3px;
+            background-color: white;
+            transition: all 0.3s;
+        }
+        
+        /* Mobile navigation dropdown */
+        .mobile-nav-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background-color: #18181b;
+            border: 1px solid #3f3f46;
+            border-radius: 0.5rem;
+            margin-top: 0.5rem;
+            min-width: 200px;
+            z-index: 50;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+        }
+        
+        .mobile-nav-dropdown.show {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .mobile-nav-dropdown button {
+            width: 100%;
+            text-align: left;
+            padding: 1rem;
+            border-bottom: 1px solid #3f3f46;
+            transition: background-color 0.2s;
+        }
+        
+        .mobile-nav-dropdown button:last-child {
+            border-bottom: none;
+        }
+        
+        .mobile-nav-dropdown button:hover {
+            background-color: #27272a;
+        }
+        
         /* Mobile calendar optimizations */
         @media (max-width: 768px) {
             .calendar-grid {
@@ -68,7 +133,56 @@
             }
             
             .calendar-day {
-                min-height: 60px;
+                min-height: 70px;
+            }
+            
+            /* Better event name display on mobile */
+            .gig-event-name {
+                font-size: 0.7rem;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                max-width: 100%;
+            }
+            
+            /* Show hamburger, hide desktop nav */
+            .hamburger {
+                display: flex;
+            }
+            
+            .desktop-nav {
+                display: none;
+            }
+            
+            /* Smaller logo on mobile */
+            .app-logo {
+                height: 2.5rem;
+            }
+            
+            .app-header {
+                padding: 0.75rem 1rem;
+            }
+        }
+        
+        /* Desktop: hide hamburger, show nav */
+        @media (min-width: 769px) {
+            .hamburger {
+                display: none;
+            }
+            
+            .mobile-nav-dropdown {
+                display: none !important;
+            }
+            
+            .desktop-nav {
+                display: flex;
+            }
+        }
+        
+        /* Tablet adjustments */
+        @media (min-width: 640px) and (max-width: 768px) {
+            .gig-event-name {
+                font-size: 0.75rem;
             }
         }
         
@@ -346,21 +460,76 @@
             document.getElementById('app').innerHTML = `
                 <div class="min-h-screen bg-black">
                     <!-- Mobile-optimized header -->
-                    <header class="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-50" role="banner">
+                    <header class="bg-zinc-900 border-b border-zinc-800 sticky top-0 z-50 app-header" role="banner">
                         <div class="container mx-auto px-4 py-4">
-                            <div class="flex items-center justify-between flex-wrap gap-4">
-                                <div class="flex items-center gap-4">
-                                    <img src="${LOGO_URL}" alt="The Barnstorm" class="h-12 md:h-16 object-contain" loading="eager" onerror="this.style.display='none'">
+                            <div class="flex items-center justify-between gap-4">
+                                <div class="flex items-center gap-3">
+                                    <img src="${LOGO_URL}" alt="The Barnstorm" class="h-10 md:h-16 app-logo object-contain" loading="eager" onerror="this.style.display='none'">
                                     <div>
-                                        <h1 class="text-xl md:text-2xl font-bold text-white uppercase">THE BARNSTORM</h1>
+                                        <h1 class="text-lg md:text-2xl font-bold text-white uppercase">THE BARNSTORM</h1>
                                         <p class="text-zinc-400 text-xs uppercase">Gig Manager</p>
                                     </div>
                                 </div>
-                                <nav class="flex items-center gap-2 md:gap-4" role="navigation" aria-label="Main navigation">
+                                
+                                <!-- Hamburger menu for mobile -->
+                                <div class="relative">
+                                    <button 
+                                        class="hamburger" 
+                                        onclick="window.toggleMobileMenu()"
+                                        aria-label="Toggle menu"
+                                        aria-expanded="false"
+                                        id="hamburgerBtn"
+                                    >
+                                        <span></span>
+                                        <span></span>
+                                        <span></span>
+                                    </button>
+                                    
+                                    <!-- Mobile dropdown menu -->
+                                    <div class="mobile-nav-dropdown" id="mobileNavDropdown">
+                                        <button 
+                                            onclick="window.switchView('gigs'); window.toggleMobileMenu();" 
+                                            id="gigsNavBtnMobile"
+                                            class="text-white font-bold uppercase text-sm"
+                                        >
+                                            Gigs
+                                        </button>
+                                        <button 
+                                            onclick="window.switchView('members'); window.toggleMobileMenu();" 
+                                            id="membersNavBtnMobile"
+                                            class="text-white font-bold uppercase text-sm"
+                                        >
+                                            Team
+                                        </button>
+                                        <button 
+                                            onclick="window.switchView('resources'); window.toggleMobileMenu();" 
+                                            id="resourcesNavBtnMobile"
+                                            class="text-white font-bold uppercase text-sm"
+                                        >
+                                            Resources
+                                        </button>
+                                        <button 
+                                            onclick="window.switchView('profile'); window.toggleMobileMenu();" 
+                                            id="profileNavBtnMobile"
+                                            class="text-white font-bold uppercase text-sm"
+                                        >
+                                            Profile
+                                        </button>
+                                        <button 
+                                            onclick="window.logout()" 
+                                            class="bg-white text-black font-bold uppercase text-sm"
+                                        >
+                                            Logout
+                                        </button>
+                                    </div>
+                                </div>
+                                
+                                <!-- Desktop navigation -->
+                                <nav class="desktop-nav items-center gap-4" role="navigation" aria-label="Main navigation">
                                     <button 
                                         onclick="window.switchView('gigs')" 
                                         id="gigsNavBtn"
-                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
                                         aria-label="View gigs"
                                     >
                                         Gigs
@@ -368,7 +537,7 @@
                                     <button 
                                         onclick="window.switchView('members')" 
                                         id="membersNavBtn"
-                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
                                         aria-label="View team members"
                                     >
                                         Team
@@ -376,7 +545,7 @@
                                     <button 
                                         onclick="window.switchView('resources')" 
                                         id="resourcesNavBtn"
-                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
                                         aria-label="View resources"
                                     >
                                         Resources
@@ -384,14 +553,14 @@
                                     <button 
                                         onclick="window.switchView('profile')" 
                                         id="profileNavBtn"
-                                        class="px-4 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                        class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
                                         aria-label="View your profile"
                                     >
                                         Profile
                                     </button>
                                     <button 
                                         onclick="window.logout()" 
-                                        class="px-4 py-2 bg-white text-black font-bold uppercase text-xs md:text-sm hover:bg-zinc-200 transition-colors rounded"
+                                        class="px-3 py-2 bg-white text-black font-bold uppercase text-xs md:text-sm hover:bg-zinc-200 transition-colors rounded"
                                         aria-label="Logout from your account"
                                     >
                                         Logout
@@ -409,6 +578,15 @@
             
             setupTouchHandlers();
             switchView('gigs');
+            
+            // Close mobile menu when clicking outside
+            document.addEventListener('click', function(event) {
+                const dropdown = document.getElementById('mobileNavDropdown');
+                const hamburger = document.getElementById('hamburgerBtn');
+                if (dropdown && hamburger && !dropdown.contains(event.target) && !hamburger.contains(event.target)) {
+                    dropdown.classList.remove('show');
+                }
+            });
         }
         
         // Mobile touch swipe handlers for calendar navigation
@@ -479,6 +657,18 @@
                 await signOut(auth);
             } catch (error) {
                 console.error('Logout error:', error);
+            }
+        };
+
+        window.toggleMobileMenu = function() {
+            const dropdown = document.getElementById('mobileNavDropdown');
+            const hamburger = document.getElementById('hamburgerBtn');
+            if (dropdown) {
+                dropdown.classList.toggle('show');
+                if (hamburger) {
+                    const isExpanded = dropdown.classList.contains('show');
+                    hamburger.setAttribute('aria-expanded', isExpanded);
+                }
             }
         };
 
@@ -1073,13 +1263,13 @@
             
             container.innerHTML = `
                 <div class="bg-zinc-900 border border-zinc-800 overflow-x-auto">
-                    <div class="grid grid-cols-7 border-b border-zinc-800 min-w-[640px] sm:min-w-0">
+                    <div class="grid grid-cols-7 border-b border-zinc-800">
                         ${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => `
                             <div class="p-2 text-center text-zinc-400 text-xs font-bold uppercase border-r border-zinc-800 last:border-r-0" role="columnheader">${day}</div>
                         `).join('')}
                     </div>
-                    <div class="grid grid-cols-7 min-w-[640px] sm:min-w-0" role="grid" aria-label="Calendar for ${monthNames[month]} ${year}">
-                        ${Array(startDay).fill(0).map(() => '<div class="min-h-16 sm:min-h-20 md:min-h-24 p-2 border-r border-b border-zinc-800 bg-black" role="gridcell"></div>').join('')}
+                    <div class="grid grid-cols-7" role="grid" aria-label="Calendar for ${monthNames[month]} ${year}">
+                        ${Array(startDay).fill(0).map(() => '<div class="min-h-20 sm:min-h-24 md:min-h-28 p-2 border-r border-b border-zinc-800 bg-black" role="gridcell"></div>').join('')}
                         
                         ${Array(daysInMonth).fill(0).map((_, i) => {
                             const day = i + 1;
@@ -1093,7 +1283,7 @@
                             
                             return `
                                 <div 
-                                    class="calendar-day min-h-16 sm:min-h-20 md:min-h-24 p-1 sm:p-2 border-r border-b border-zinc-800 ${isWeekend ? 'bg-zinc-950' : 'bg-black'} ${isToday ? 'ring-2 ring-white' : ''} ${isPast ? 'opacity-50' : ''} ${hasGigs ? 'cursor-pointer hover:bg-zinc-800' : ''} last:border-r-0"
+                                    class="calendar-day min-h-20 sm:min-h-24 md:min-h-28 p-1 sm:p-2 border-r border-b border-zinc-800 ${isWeekend ? 'bg-zinc-950' : 'bg-black'} ${isToday ? 'ring-2 ring-white' : ''} ${isPast ? 'opacity-50' : ''} ${hasGigs ? 'cursor-pointer hover:bg-zinc-800' : ''} last:border-r-0"
                                     ${hasGigs ? `onclick="window.handleCalendarDayClick(${year}, ${month}, ${day})"` : ''}
                                     role="gridcell"
                                     aria-label="${day} ${monthNames[month]} ${year}${hasGigs ? `, ${gigsByDate[day].length} gig${gigsByDate[day].length > 1 ? 's' : ''}` : ''}"
@@ -1104,7 +1294,7 @@
                                         <div class="space-y-1">
                                             ${gigsByDate[day].slice(0, 2).map(g => `
                                                 <div class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-1 sm:p-1.5 rounded transition-colors ${isPast ? 'opacity-75' : ''}">
-                                                    <div class="text-white text-xs font-bold truncate leading-tight">${escapeHtml(g.eventName || 'Event')}</div>
+                                                    <div class="gig-event-name text-white font-bold leading-tight">${escapeHtml(g.eventName || 'Event')}</div>
                                                     <div class="text-zinc-400 text-xs truncate leading-tight hidden sm:block">${escapeHtml(g.venue || '')}</div>
                                                 </div>
                                             `).join('')}
@@ -1121,7 +1311,7 @@
                             const totalCells = startDay + daysInMonth;
                             const remainingCells = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
                             return Array(remainingCells).fill(0).map(() => 
-                                '<div class="min-h-16 sm:min-h-20 md:min-h-24 p-2 border-r border-b border-zinc-800 bg-black last:border-r-0" role="gridcell"></div>'
+                                '<div class="min-h-20 sm:min-h-24 md:min-h-28 p-2 border-r border-b border-zinc-800 bg-black last:border-r-0" role="gridcell"></div>'
                             ).join('');
                         })()}
                     </div>
