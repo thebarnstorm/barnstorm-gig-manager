@@ -340,10 +340,50 @@
                 }
                 
                 const data = await response.json();
-                console.log('Fetched gigs:', data.length, 'gigs');
+                console.log('Fetched data:', data);
                 
-                gigs = data;
-                gigsCache = data;
+                // The API returns { gigs: [...] }
+                let gigsArray = data.gigs || data;
+                
+                // Transform data to maintain compatibility with old structure
+                gigsArray = gigsArray.map(gig => {
+                    // Build musicians array with proper structure
+                    const musicians = (gig.musicians || []).map(m => ({
+                        instrument: m.role,
+                        memberName: m.name,
+                        isNA: m.isNA,
+                        isNeed: m.isNeed,
+                        originalName: m.originalName
+                    }));
+                    
+                    // Build production array with proper structure
+                    const production = (gig.production || []).map(p => ({
+                        instrument: p.role,
+                        memberName: p.name,
+                        isNA: p.isNA,
+                        isNeed: p.isNeed,
+                        originalName: p.originalName
+                    }));
+                    
+                    // Ensure media object exists
+                    const media = gig.media || {};
+                    
+                    return {
+                        ...gig,
+                        musicians,
+                        production,
+                        media,
+                        bandInfo: {
+                            showInfoUrl: gig.showInfoUrl,
+                            notes: gig.notes || ''
+                        }
+                    };
+                });
+                
+                console.log('Processed gigs:', gigsArray.length, 'gigs');
+                
+                gigs = gigsArray;
+                gigsCache = gigsArray;
                 gigsCacheTimestamp = now;
                 
                 // Reset render state to force a re-render with new data
@@ -1931,11 +1971,42 @@
         }
 
         function showMediaView() {
+            console.log('showMediaView called');
+            console.log('Total gigs available:', gigs.length);
+            
+            // Safety check
+            if (!Array.isArray(gigs)) {
+                console.error('gigs is not an array in showMediaView');
+                document.getElementById('contentArea').innerHTML = `
+                    <div>
+                        <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
+                        <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
+                            <p class="text-red-500 text-lg mb-4">Error loading media data</p>
+                            <button onclick="window.switchView('gigs')" class="px-4 py-2 bg-white text-black font-bold uppercase text-xs hover:bg-zinc-200 transition-colors">
+                                Back to Gigs
+                            </button>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
             // Filter to only past gigs with media
             const today = new Date().toISOString().split('T')[0];
+            console.log('Today:', today);
+            
             const pastGigsWithMedia = gigs
-                .filter(g => g.date < today && g.media && (g.media.photo || g.media.video || g.media.audio))
+                .filter(g => {
+                    const isPast = g.date < today;
+                    const hasMedia = g.media && (g.media.photo || g.media.video || g.media.audio);
+                    if (hasMedia) {
+                        console.log(`Gig ${g.eventName}: date=${g.date}, isPast=${isPast}, hasMedia=${hasMedia}`);
+                    }
+                    return isPast && hasMedia;
+                })
                 .sort((a, b) => b.date.localeCompare(a.date)); // Newest first
+            
+            console.log('Past gigs with media:', pastGigsWithMedia.length);
             
             // Organize by media type
             const photoGigs = pastGigsWithMedia.filter(g => g.media.photo);
