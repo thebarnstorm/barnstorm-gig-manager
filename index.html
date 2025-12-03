@@ -2017,7 +2017,7 @@
                                                         `}
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
-                                                                ${needsSub ? `⚠️ NEED SUB - ${escapeHtml(m.instrument || 'Musician')}` : escapeHtml(m.memberName)}
+                                                                ${needsSub ? `⚠️ NEED SUB - ${escapeHtml(m.role || m.instrument || 'Musician')}` : escapeHtml(m.memberName)}
                                                                 ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
                                                             </p>
                                                             ${!needsSub ? `<p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>` : ''}
