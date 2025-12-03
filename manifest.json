@@ -2,7 +2,7 @@
   "name": "The Barnstorm - Gig Manager",
   "short_name": "Barnstorm",
   "description": "Manage your gigs with The Barnstorm band",
-  "start_url": "/",
+  "start_url": "/barnstorm-gig-manager/",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
