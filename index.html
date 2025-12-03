@@ -1008,9 +1008,25 @@
             renderGigs();
         };
 
+        let searchTimeout = null;
+        
         window.handleGigSearch = function(query) {
-            searchQuery = query.toLowerCase().trim();
-            renderGigs();
+            console.log('handleGigSearch called with:', query);
+            console.log('Current focused element:', document.activeElement?.id);
+            
+            searchQuery = query.toLowerCase();
+            
+            // Clear existing timeout
+            if (searchTimeout) {
+                clearTimeout(searchTimeout);
+            }
+            
+            // Debounce the render - only render after user stops typing for 300ms  
+            searchTimeout = setTimeout(() => {
+                console.log('Debounced render executing');
+                renderGigs();
+                console.log('After renderGigs, focused element:', document.activeElement?.id);
+            }, 300);
         };
 
         window.handleMediaSearch = function(query) {
