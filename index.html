@@ -2017,10 +2017,10 @@
                                                         `}
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
-                                                                ${needsSub ? '⚠️ NEED SUB' : escapeHtml(m.memberName)}
+                                                                ${needsSub ? `⚠️ NEED SUB - ${escapeHtml(m.instrument || 'Musician')}` : escapeHtml(m.memberName)}
                                                                 ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
                                                             </p>
-                                                            <p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>
+                                                            ${!needsSub ? `<p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>` : ''}
                                                         </div>
                                                         ${isCurrentUser && !isNA ? `
                                                             <button 
@@ -2058,10 +2058,10 @@
                                                         `}
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
-                                                                ${needsSub ? '⚠️ NEED SUB' : escapeHtml(p.memberName)}
+                                                                ${needsSub ? `⚠️ NEED SUB - ${escapeHtml(p.role || 'Production')}` : escapeHtml(p.memberName)}
                                                                 ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
                                                             </p>
-                                                            <p class="text-zinc-400 text-xs truncate">${escapeHtml(p.role || '')}</p>
+                                                            ${!needsSub ? `<p class="text-zinc-400 text-xs truncate">${escapeHtml(p.role || '')}</p>` : ''}
                                                         </div>
                                                         ${isCurrentUser && !isNA ? `
                                                             <button 
