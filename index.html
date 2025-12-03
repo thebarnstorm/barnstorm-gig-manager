@@ -1041,7 +1041,7 @@
             
             // Debounce the render - only render after user stops typing for 300ms
             mediaSearchTimeout = setTimeout(() => {
-                showMediaView();
+                renderMediaList();
             }, 300);
         };
 
@@ -2130,20 +2130,50 @@
 
         function showMediaView() {
             console.log('showMediaView called');
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
+                    
+                    <!-- Search bar for Media -->
+                    <div class="w-full mb-6">
+                        <input 
+                            type="text" 
+                            id="mediaSearchInput"
+                            value="${escapeHtml(mediaSearchQuery)}"
+                            placeholder="🔍 Search media (venue, event name, photographer, etc.)"
+                            class="w-full px-4 py-3 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:border-white transition-colors"
+                            oninput="window.handleMediaSearch(this.value)"
+                        />
+                    </div>
+                    
+                    <!-- Media content container -->
+                    <div id="mediaContainer"></div>
+                </div>
+            `;
+            
+            renderMediaList();
+        }
+        
+        function renderMediaList() {
+            const container = document.getElementById('mediaContainer');
+            if (!container) {
+                console.log('No mediaContainer element found');
+                return;
+            }
+            
+            console.log('renderMediaList called');
             console.log('Total gigs available:', gigs.length);
             
             // Safety check
             if (!Array.isArray(gigs)) {
-                console.error('gigs is not an array in showMediaView');
-                document.getElementById('contentArea').innerHTML = `
-                    <div>
-                        <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
-                        <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
-                            <p class="text-red-500 text-lg mb-4">Error loading media data</p>
-                            <button onclick="window.switchView('gigs')" class="px-4 py-2 bg-white text-black font-bold uppercase text-xs hover:bg-zinc-200 transition-colors">
-                                Back to Gigs
-                            </button>
-                        </div>
+                console.error('gigs is not an array in renderMediaList');
+                container.innerHTML = `
+                    <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
+                        <p class="text-red-500 text-lg mb-4">Error loading media data</p>
+                        <button onclick="window.switchView('gigs')" class="px-4 py-2 bg-white text-black font-bold uppercase text-xs hover:bg-zinc-200 transition-colors">
+                            Back to Gigs
+                        </button>
                     </div>
                 `;
                 return;
@@ -2151,15 +2181,11 @@
             
             // Filter to only past gigs with media
             const today = new Date().toISOString().split('T')[0];
-            console.log('Today:', today);
             
             const pastGigsWithMedia = gigs
                 .filter(g => {
                     const isPast = g.date < today;
-                    const hasMedia = g.media && (g.media.photo || g.media.video || g.media.audio);
-                    if (hasMedia) {
-                        console.log(`Gig ${g.eventName}: date=${g.date}, isPast=${isPast}, hasMedia=${hasMedia}`);
-                    }
+                    const hasMedia = g.media && (g.media.photo || g.media.video || g.media.audio || g.media.videoEdits || g.media.blog);
                     
                     // Apply search filter if search query exists
                     if (mediaSearchQuery && isPast && hasMedia) {
@@ -2180,29 +2206,33 @@
             
             console.log('Past gigs with media:', pastGigsWithMedia.length);
             
-            document.getElementById('contentArea').innerHTML = `
-                <div>
-                    <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
-                    
-                    <!-- Search bar for Media -->
-                    <div class="w-full mb-6">
-                        <input 
-                            type="text" 
-                            id="mediaSearchInput"
-                            value="${escapeHtml(mediaSearchQuery)}"
-                            placeholder="🔍 Search media (venue, event name, etc.)"
-                            class="w-full px-4 py-3 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:border-white transition-colors"
-                            oninput="window.handleMediaSearch(this.value)"
-                        />
+            if (pastGigsWithMedia.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
+                        <p class="text-zinc-400 text-lg">${mediaSearchQuery ? 'No media found matching your search.' : 'No media available yet. Media will appear here after past gigs.'}</p>
                     </div>
-                    
-                    ${pastGigsWithMedia.length === 0 ? `
-                        <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
-                            <p class="text-zinc-400 text-lg">${mediaSearchQuery ? 'No media found matching your search.' : 'No media available yet. Media will appear here after past gigs.'}</p>
-                        </div>
-                    ` : `
-                        <!-- Chronological Media List -->
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                `;
+                return;
+            }
+            
+            // Table layout with rows for each performance
+            container.innerHTML = `
+                <!-- Desktop Table View -->
+                <div class="hidden md:block overflow-x-auto">
+                    <table class="w-full border-collapse">
+                        <thead>
+                            <tr class="bg-zinc-900 border-b border-zinc-700">
+                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Date</th>
+                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Event</th>
+                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Venue</th>
+                                <th class="text-center p-4 text-white font-bold uppercase text-sm">📷 Photo</th>
+                                <th class="text-center p-4 text-white font-bold uppercase text-sm">🎥 Video</th>
+                                <th class="text-center p-4 text-white font-bold uppercase text-sm">🎵 Audio</th>
+                                <th class="text-center p-4 text-white font-bold uppercase text-sm">✂️ Edits</th>
+                                <th class="text-center p-4 text-white font-bold uppercase text-sm">📝 Blog</th>
+                            </tr>
+                        </thead>
+                        <tbody>
                             ${pastGigsWithMedia.map(g => {
                                 const gigDate = new Date(g.date + 'T00:00:00');
                                 const formattedDate = gigDate.toLocaleDateString('en-US', { 
@@ -2211,53 +2241,124 @@
                                     day: 'numeric' 
                                 });
                                 
-                                // Build media links array
-                                const mediaLinks = [];
-                                if (g.media.photo) {
-                                    mediaLinks.push({ type: 'photo', icon: '📷', label: 'Photos', url: g.media.photo, color: 'purple' });
-                                }
-                                if (g.media.video) {
-                                    mediaLinks.push({ type: 'video', icon: '🎥', label: 'Video', url: g.media.video, color: 'red' });
-                                }
-                                if (g.media.audio) {
-                                    mediaLinks.push({ type: 'audio', icon: '🎵', label: 'Audio', url: g.media.audio, color: 'blue' });
-                                }
-                                if (g.media.videoEdits) {
-                                    mediaLinks.push({ type: 'videoEdits', icon: '✂️', label: 'Edits', url: g.media.videoEdits, color: 'indigo' });
-                                }
-                                if (g.media.blog) {
-                                    mediaLinks.push({ type: 'blog', icon: '📝', label: 'Blog', url: g.media.blog, color: 'green' });
-                                }
-                                
                                 return `
-                                    <div class="bg-zinc-900 border border-zinc-800 hover:border-white transition-all">
-                                        <div class="p-4">
-                                            <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                            <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
-                                            <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
-                                            
-                                            ${g.media.photographer ? `
-                                                <p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>
-                                            ` : ''}
-                                            
-                                            <!-- Media Type Links -->
-                                            <div class="flex flex-wrap gap-2">
-                                                ${mediaLinks.map(link => `
-                                                    <a href="${escapeHtml(link.url)}" 
-                                                       target="_blank" 
-                                                       rel="noopener noreferrer"
-                                                       class="px-3 py-1.5 bg-${link.color}-900 bg-opacity-50 border border-${link.color}-700 hover:bg-${link.color}-800 text-${link.color}-400 hover:text-${link.color}-300 text-xs font-bold transition-all flex items-center gap-1">
-                                                        <span>${link.icon}</span>
-                                                        <span>${link.label}</span>
-                                                    </a>
-                                                `).join('')}
-                                            </div>
-                                        </div>
-                                    </div>
+                                    <tr class="border-b border-zinc-800 hover:bg-zinc-900 transition-colors">
+                                        <td class="p-4 text-zinc-400 text-sm whitespace-nowrap">${formattedDate}</td>
+                                        <td class="p-4">
+                                            <div class="text-white font-bold">${escapeHtml(g.eventName || 'Event')}</div>
+                                            ${g.media.photographer ? `<div class="text-zinc-500 text-xs mt-1">📸 ${escapeHtml(g.media.photographer)}</div>` : ''}
+                                        </td>
+                                        <td class="p-4 text-zinc-400 text-sm">${escapeHtml(g.venue || '')}</td>
+                                        <td class="p-4 text-center">
+                                            ${g.media.photo ? `
+                                                <a href="${escapeHtml(g.media.photo)}" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="inline-block px-3 py-1 bg-purple-900 bg-opacity-50 border border-purple-700 hover:bg-purple-800 text-purple-400 hover:text-purple-300 text-xs font-bold transition-all">
+                                                    View
+                                                </a>
+                                            ` : `<span class="text-zinc-600 text-xs">—</span>`}
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            ${g.media.video ? `
+                                                <a href="${escapeHtml(g.media.video)}" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="inline-block px-3 py-1 bg-red-900 bg-opacity-50 border border-red-700 hover:bg-red-800 text-red-400 hover:text-red-300 text-xs font-bold transition-all">
+                                                    View
+                                                </a>
+                                            ` : `<span class="text-zinc-600 text-xs">—</span>`}
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            ${g.media.audio ? `
+                                                <a href="${escapeHtml(g.media.audio)}" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="inline-block px-3 py-1 bg-blue-900 bg-opacity-50 border border-blue-700 hover:bg-blue-800 text-blue-400 hover:text-blue-300 text-xs font-bold transition-all">
+                                                    View
+                                                </a>
+                                            ` : `<span class="text-zinc-600 text-xs">—</span>`}
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            ${g.media.videoEdits ? `
+                                                <a href="${escapeHtml(g.media.videoEdits)}" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="inline-block px-3 py-1 bg-indigo-900 bg-opacity-50 border border-indigo-700 hover:bg-indigo-800 text-indigo-400 hover:text-indigo-300 text-xs font-bold transition-all">
+                                                    View
+                                                </a>
+                                            ` : `<span class="text-zinc-600 text-xs">—</span>`}
+                                        </td>
+                                        <td class="p-4 text-center">
+                                            ${g.media.blog ? `
+                                                <a href="${escapeHtml(g.media.blog)}" 
+                                                   target="_blank" 
+                                                   rel="noopener noreferrer"
+                                                   class="inline-block px-3 py-1 bg-green-900 bg-opacity-50 border border-green-700 hover:bg-green-800 text-green-400 hover:text-green-300 text-xs font-bold transition-all">
+                                                    View
+                                                </a>
+                                            ` : `<span class="text-zinc-600 text-xs">—</span>`}
+                                        </td>
+                                    </tr>
                                 `;
                             }).join('')}
-                        </div>
-                    `}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Mobile Card View -->
+                <div class="md:hidden space-y-4">
+                    ${pastGigsWithMedia.map(g => {
+                        const gigDate = new Date(g.date + 'T00:00:00');
+                        const formattedDate = gigDate.toLocaleDateString('en-US', { 
+                            year: 'numeric', 
+                            month: 'short', 
+                            day: 'numeric' 
+                        });
+                        
+                        return `
+                            <div class="bg-zinc-900 border border-zinc-800 p-4">
+                                <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
+                                <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
+                                <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
+                                ${g.media.photographer ? `<p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>` : ''}
+                                
+                                <!-- Media Links -->
+                                <div class="flex flex-wrap gap-2">
+                                    ${g.media.photo ? `
+                                        <a href="${escapeHtml(g.media.photo)}" target="_blank" rel="noopener noreferrer"
+                                           class="px-3 py-1.5 bg-purple-900 bg-opacity-50 border border-purple-700 text-purple-400 text-xs font-bold">
+                                            📷 Photo
+                                        </a>
+                                    ` : ''}
+                                    ${g.media.video ? `
+                                        <a href="${escapeHtml(g.media.video)}" target="_blank" rel="noopener noreferrer"
+                                           class="px-3 py-1.5 bg-red-900 bg-opacity-50 border border-red-700 text-red-400 text-xs font-bold">
+                                            🎥 Video
+                                        </a>
+                                    ` : ''}
+                                    ${g.media.audio ? `
+                                        <a href="${escapeHtml(g.media.audio)}" target="_blank" rel="noopener noreferrer"
+                                           class="px-3 py-1.5 bg-blue-900 bg-opacity-50 border border-blue-700 text-blue-400 text-xs font-bold">
+                                            🎵 Audio
+                                        </a>
+                                    ` : ''}
+                                    ${g.media.videoEdits ? `
+                                        <a href="${escapeHtml(g.media.videoEdits)}" target="_blank" rel="noopener noreferrer"
+                                           class="px-3 py-1.5 bg-indigo-900 bg-opacity-50 border border-indigo-700 text-indigo-400 text-xs font-bold">
+                                            ✂️ Edits
+                                        </a>
+                                    ` : ''}
+                                    ${g.media.blog ? `
+                                        <a href="${escapeHtml(g.media.blog)}" target="_blank" rel="noopener noreferrer"
+                                           class="px-3 py-1.5 bg-green-900 bg-opacity-50 border border-green-700 text-green-400 text-xs font-bold">
+                                            📝 Blog
+                                        </a>
+                                    ` : ''}
+                                </div>
+                            </div>
+                        `;
+                    }).join('')}
                 </div>
             `;
         }
