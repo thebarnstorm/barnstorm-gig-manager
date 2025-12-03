@@ -592,6 +592,16 @@
             });
         }
 
+        function hasUpcomingSubsNeeded() {
+            const today = new Date().toISOString().split('T')[0];
+            return gigs.some(g => {
+                if (g.date < today) return false;
+                const needsMusician = (g.musicians || []).some(m => m.isNeed === true);
+                const needsProduction = (g.production || []).some(p => p.isNeed === true);
+                return needsMusician || needsProduction;
+            });
+        }
+
         function showMainApp() {
             document.getElementById('app').innerHTML = `
                 <div class="min-h-screen bg-black">
@@ -651,7 +661,7 @@
                                         >
                                             Resources
                                         </button>
-                                        ${currentUser.email === 'booking@thebarnstorm.com' ? `
+                                        ${currentUser.email === 'booking@thebarnstorm.com' && hasUpcomingSubsNeeded() ? `
                                             <button 
                                                 onclick="window.switchView('subs'); window.toggleMobileMenu();" 
                                                 id="subsNavBtnMobile"
@@ -710,7 +720,7 @@
                                     >
                                         Resources
                                     </button>
-                                    ${currentUser.email === 'booking@thebarnstorm.com' ? `
+                                    ${currentUser.email === 'booking@thebarnstorm.com' && hasUpcomingSubsNeeded() ? `
                                         <button 
                                             onclick="window.switchView('subs')" 
                                             id="subsNavBtn"
@@ -2459,8 +2469,8 @@
                                                             <span class="text-yellow-400 text-lg">🎵</span>
                                                         </div>
                                                         <div>
-                                                            <p class="text-white font-bold text-sm">Need Musician</p>
-                                                            <p class="text-yellow-400 text-xs">${escapeHtml(m.instrument || 'Unknown Role')}</p>
+                                                            <p class="text-white font-bold text-sm">NEED - ${escapeHtml(m.role || 'Musician')}</p>
+                                                            <p class="text-yellow-400 text-xs">Musician position</p>
                                                         </div>
                                                     </div>
                                                 `).join('')}
@@ -2470,8 +2480,8 @@
                                                             <span class="text-yellow-400 text-lg">🎬</span>
                                                         </div>
                                                         <div>
-                                                            <p class="text-white font-bold text-sm">Need Production</p>
-                                                            <p class="text-yellow-400 text-xs">${escapeHtml(p.role || 'Unknown Role')}</p>
+                                                            <p class="text-white font-bold text-sm">NEED - ${escapeHtml(p.role || 'Production')}</p>
+                                                            <p class="text-yellow-400 text-xs">Production position</p>
                                                         </div>
                                                     </div>
                                                 `).join('')}
