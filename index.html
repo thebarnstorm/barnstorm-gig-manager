@@ -351,8 +351,34 @@
                 container.setAttribute('aria-busy', 'true');
             }
 
+            // Try to load cached data first for instant display
+            const cachedData = localStorage.getItem('barnstorm_gigs_cache');
+            const cacheTimestamp = localStorage.getItem('barnstorm_gigs_cache_time');
+            const cacheAge = cacheTimestamp ? Date.now() - parseInt(cacheTimestamp) : Infinity;
+            
+            // If cache is less than 5 minutes old, use it immediately
+            if (cachedData && cacheAge < 5 * 60 * 1000) {
+                console.log('Using cached data (age: ' + Math.round(cacheAge / 1000) + 's)');
+                try {
+                    const cachedGigs = JSON.parse(cachedData);
+                    gigs = cachedGigs;
+                    console.log('Loaded ' + gigs.length + ' gigs from cache');
+                    
+                    // Render immediately with cached data
+                    if (container) {
+                        container.removeAttribute('aria-busy');
+                    }
+                    renderGigs();
+                    
+                    // Still fetch fresh data in background to update cache
+                    // But don't show loading indicator since we have cached data
+                } catch (e) {
+                    console.error('Error parsing cached data:', e);
+                }
+            }
+
             try {
-                console.log('Attempting to fetch from:', GOOGLE_SHEET_API_URL);
+                console.log('Fetching fresh data from:', GOOGLE_SHEET_API_URL);
                 
                 if (GOOGLE_SHEET_API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
                     throw new Error('You need to replace YOUR_APPS_SCRIPT_WEB_APP_URL_HERE with your actual Apps Script URL');
@@ -457,6 +483,15 @@
                 gigsCacheTimestamp = now;
                 console.log('gigs variable now has', gigs.length, 'items');
                 console.log('gigsCache now has', gigsCache.length, 'items');
+                
+                // Store in localStorage for instant future loads
+                try {
+                    localStorage.setItem('barnstorm_gigs_cache', JSON.stringify(gigs));
+                    localStorage.setItem('barnstorm_gigs_cache_time', Date.now().toString());
+                    console.log('Data cached in localStorage');
+                } catch (e) {
+                    console.error('Error caching to localStorage:', e);
+                }
                 
                 // Reset render state to force a re-render with new data
                 lastRenderedGigsState = null;
