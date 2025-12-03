@@ -1029,9 +1029,20 @@
             }, 300);
         };
 
+        let mediaSearchTimeout = null;
+        
         window.handleMediaSearch = function(query) {
-            mediaSearchQuery = query.toLowerCase().trim();
-            showMediaView();
+            mediaSearchQuery = query.toLowerCase();
+            
+            // Clear existing timeout
+            if (mediaSearchTimeout) {
+                clearTimeout(mediaSearchTimeout);
+            }
+            
+            // Debounce the render - only render after user stops typing for 300ms
+            mediaSearchTimeout = setTimeout(() => {
+                showMediaView();
+            }, 300);
         };
 
         window.refreshGigs = function() {
@@ -2169,11 +2180,6 @@
             
             console.log('Past gigs with media:', pastGigsWithMedia.length);
             
-            // Organize by media type
-            const photoGigs = pastGigsWithMedia.filter(g => g.media.photo);
-            const videoGigs = pastGigsWithMedia.filter(g => g.media.video);
-            const audioGigs = pastGigsWithMedia.filter(g => g.media.audio);
-            
             document.getElementById('contentArea').innerHTML = `
                 <div>
                     <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
@@ -2190,119 +2196,68 @@
                         />
                     </div>
                     
-                    ${photoGigs.length === 0 && videoGigs.length === 0 && audioGigs.length === 0 ? `
+                    ${pastGigsWithMedia.length === 0 ? `
                         <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
                             <p class="text-zinc-400 text-lg">${mediaSearchQuery ? 'No media found matching your search.' : 'No media available yet. Media will appear here after past gigs.'}</p>
                         </div>
-                    ` : ''}
-                    
-                    <!-- Photos Section -->
-                    ${photoGigs.length > 0 ? `
-                        <div class="mb-10">
-                            <div class="flex items-center gap-3 mb-4">
-                                <span class="text-4xl">📷</span>
-                                <h3 class="text-2xl font-bold text-white uppercase">Photos (${photoGigs.length})</h3>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                ${photoGigs.map(g => {
-                                    const gigDate = new Date(g.date + 'T00:00:00');
-                                    const formattedDate = gigDate.toLocaleDateString('en-US', { 
-                                        year: 'numeric', 
-                                        month: 'short', 
-                                        day: 'numeric' 
-                                    });
-                                    return `
-                                        <a href="${escapeHtml(g.media.photo)}" 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           class="block bg-zinc-900 border border-zinc-800 hover:border-purple-600 transition-all group">
-                                            <div class="p-4">
-                                                <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                                <h4 class="text-white font-bold text-lg mb-1 group-hover:text-purple-400 transition-colors">${escapeHtml(g.eventName || 'Event')}</h4>
-                                                <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
-                                                <div class="flex items-center gap-2 text-purple-400 text-sm font-bold">
-                                                    <span>View Photos</span>
-                                                    <span>→</span>
-                                                </div>
+                    ` : `
+                        <!-- Chronological Media List -->
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            ${pastGigsWithMedia.map(g => {
+                                const gigDate = new Date(g.date + 'T00:00:00');
+                                const formattedDate = gigDate.toLocaleDateString('en-US', { 
+                                    year: 'numeric', 
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                });
+                                
+                                // Build media links array
+                                const mediaLinks = [];
+                                if (g.media.photo) {
+                                    mediaLinks.push({ type: 'photo', icon: '📷', label: 'Photos', url: g.media.photo, color: 'purple' });
+                                }
+                                if (g.media.video) {
+                                    mediaLinks.push({ type: 'video', icon: '🎥', label: 'Video', url: g.media.video, color: 'red' });
+                                }
+                                if (g.media.audio) {
+                                    mediaLinks.push({ type: 'audio', icon: '🎵', label: 'Audio', url: g.media.audio, color: 'blue' });
+                                }
+                                if (g.media.videoEdits) {
+                                    mediaLinks.push({ type: 'videoEdits', icon: '✂️', label: 'Edits', url: g.media.videoEdits, color: 'indigo' });
+                                }
+                                if (g.media.blog) {
+                                    mediaLinks.push({ type: 'blog', icon: '📝', label: 'Blog', url: g.media.blog, color: 'green' });
+                                }
+                                
+                                return `
+                                    <div class="bg-zinc-900 border border-zinc-800 hover:border-white transition-all">
+                                        <div class="p-4">
+                                            <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
+                                            <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
+                                            <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
+                                            
+                                            ${g.media.photographer ? `
+                                                <p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>
+                                            ` : ''}
+                                            
+                                            <!-- Media Type Links -->
+                                            <div class="flex flex-wrap gap-2">
+                                                ${mediaLinks.map(link => `
+                                                    <a href="${escapeHtml(link.url)}" 
+                                                       target="_blank" 
+                                                       rel="noopener noreferrer"
+                                                       class="px-3 py-1.5 bg-${link.color}-900 bg-opacity-50 border border-${link.color}-700 hover:bg-${link.color}-800 text-${link.color}-400 hover:text-${link.color}-300 text-xs font-bold transition-all flex items-center gap-1">
+                                                        <span>${link.icon}</span>
+                                                        <span>${link.label}</span>
+                                                    </a>
+                                                `).join('')}
                                             </div>
-                                        </a>
-                                    `;
-                                }).join('')}
-                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
                         </div>
-                    ` : ''}
-                    
-                    <!-- Videos Section -->
-                    ${videoGigs.length > 0 ? `
-                        <div class="mb-10">
-                            <div class="flex items-center gap-3 mb-4">
-                                <span class="text-4xl">🎥</span>
-                                <h3 class="text-2xl font-bold text-white uppercase">Videos (${videoGigs.length})</h3>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                ${videoGigs.map(g => {
-                                    const gigDate = new Date(g.date + 'T00:00:00');
-                                    const formattedDate = gigDate.toLocaleDateString('en-US', { 
-                                        year: 'numeric', 
-                                        month: 'short', 
-                                        day: 'numeric' 
-                                    });
-                                    return `
-                                        <a href="${escapeHtml(g.media.video)}" 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           class="block bg-zinc-900 border border-zinc-800 hover:border-red-600 transition-all group">
-                                            <div class="p-4">
-                                                <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                                <h4 class="text-white font-bold text-lg mb-1 group-hover:text-red-400 transition-colors">${escapeHtml(g.eventName || 'Event')}</h4>
-                                                <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
-                                                <div class="flex items-center gap-2 text-red-400 text-sm font-bold">
-                                                    <span>Watch Video</span>
-                                                    <span>→</span>
-                                                </div>
-                                            </div>
-                                        </a>
-                                    `;
-                                }).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    
-                    <!-- Audio Section -->
-                    ${audioGigs.length > 0 ? `
-                        <div class="mb-10">
-                            <div class="flex items-center gap-3 mb-4">
-                                <span class="text-4xl">🎵</span>
-                                <h3 class="text-2xl font-bold text-white uppercase">Audio (${audioGigs.length})</h3>
-                            </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                ${audioGigs.map(g => {
-                                    const gigDate = new Date(g.date + 'T00:00:00');
-                                    const formattedDate = gigDate.toLocaleDateString('en-US', { 
-                                        year: 'numeric', 
-                                        month: 'short', 
-                                        day: 'numeric' 
-                                    });
-                                    return `
-                                        <a href="${escapeHtml(g.media.audio)}" 
-                                           target="_blank" 
-                                           rel="noopener noreferrer"
-                                           class="block bg-zinc-900 border border-zinc-800 hover:border-blue-600 transition-all group">
-                                            <div class="p-4">
-                                                <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                                <h4 class="text-white font-bold text-lg mb-1 group-hover:text-blue-400 transition-colors">${escapeHtml(g.eventName || 'Event')}</h4>
-                                                <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
-                                                <div class="flex items-center gap-2 text-blue-400 text-sm font-bold">
-                                                    <span>Listen to Audio</span>
-                                                    <span>→</span>
-                                                </div>
-                                            </div>
-                                        </a>
-                                    `;
-                                }).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
+                    `}
                 </div>
             `;
         }
