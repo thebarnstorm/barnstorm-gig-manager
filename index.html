@@ -340,47 +340,77 @@
                 }
                 
                 const data = await response.json();
-                console.log('Fetched data:', data);
+                console.log('RAW API Response:', JSON.stringify(data).substring(0, 500));
+                console.log('Full data object:', data);
+                console.log('data.gigs exists?', !!data.gigs);
+                console.log('Is data an array?', Array.isArray(data));
+                console.log('Is data.gigs an array?', Array.isArray(data.gigs));
                 
-                // The API returns { gigs: [...] }
+                // Handle both old and new API formats
                 let gigsArray = data.gigs || data;
                 
-                // Transform data to maintain compatibility with old structure
+                // If it's not an array, something is wrong
+                if (!Array.isArray(gigsArray)) {
+                    console.error('gigsArray is not an array:', gigsArray);
+                    throw new Error('Invalid data format received from API');
+                }
+                
+                console.log('gigsArray length BEFORE transform:', gigsArray.length);
+                console.log('First gig BEFORE transform:', gigsArray[0]);
+                
+                // Transform data to maintain compatibility
                 gigsArray = gigsArray.map(gig => {
-                    // Build musicians array with proper structure
-                    const musicians = (gig.musicians || []).map(m => ({
-                        instrument: m.role,
-                        memberName: m.name,
-                        isNA: m.isNA,
-                        isNeed: m.isNeed,
-                        originalName: m.originalName
-                    }));
+                    // Check if this is the NEW format (with role/name) or OLD format (already has memberName)
+                    const musicians = (gig.musicians || []).map(m => {
+                        // New format: { role: 'drums', name: 'John' }
+                        if (m.role && m.name && !m.memberName) {
+                            return {
+                                instrument: m.role,
+                                memberName: m.name,
+                                isNA: m.isNA,
+                                isNeed: m.isNeed,
+                                originalName: m.originalName
+                            };
+                        }
+                        // Old format: already has memberName and instrument
+                        return m;
+                    });
                     
-                    // Build production array with proper structure
-                    const production = (gig.production || []).map(p => ({
-                        instrument: p.role,
-                        memberName: p.name,
-                        isNA: p.isNA,
-                        isNeed: p.isNeed,
-                        originalName: p.originalName
-                    }));
+                    const production = (gig.production || []).map(p => {
+                        // New format: { role: 'a1', name: 'Jane' }
+                        if (p.role && p.name && !p.memberName) {
+                            return {
+                                instrument: p.role,
+                                memberName: p.name,
+                                isNA: p.isNA,
+                                isNeed: p.isNeed,
+                                originalName: p.originalName
+                            };
+                        }
+                        // Old format: already has memberName and instrument
+                        return p;
+                    });
                     
                     // Ensure media object exists
                     const media = gig.media || {};
+                    
+                    // Handle bandInfo - might be at top level or in bandInfo object
+                    const bandInfo = gig.bandInfo || {
+                        showInfoUrl: gig.showInfoUrl,
+                        notes: gig.notes || ''
+                    };
                     
                     return {
                         ...gig,
                         musicians,
                         production,
                         media,
-                        bandInfo: {
-                            showInfoUrl: gig.showInfoUrl,
-                            notes: gig.notes || ''
-                        }
+                        bandInfo
                     };
                 });
                 
-                console.log('Processed gigs:', gigsArray.length, 'gigs');
+                console.log('gigsArray length AFTER transform:', gigsArray.length);
+                console.log('First gig AFTER transform:', gigsArray[0]);
                 
                 gigs = gigsArray;
                 gigsCache = gigsArray;
@@ -1036,6 +1066,8 @@
                 return [];
             }
             
+            console.log('getFilteredGigs: Starting with', gigs.length, 'gigs');
+            
             let filtered = gigs;
             
             // Apply "My Gigs" filter
@@ -1121,6 +1153,7 @@
             
             // Apply search filter
             if (searchQuery) {
+                console.log('Applying search filter:', searchQuery);
                 try {
                     filtered = filtered.filter(gig => {
                         const searchFields = [
@@ -1137,6 +1170,7 @@
                         const searchableText = searchFields.join(' ').toLowerCase();
                         return searchableText.includes(searchQuery);
                     });
+                    console.log('After search filter:', filtered.length);
                 } catch (error) {
                     console.error('Error in search filter:', error);
                     // Return unfiltered if search fails
@@ -1144,15 +1178,24 @@
             }
             
             // Safety check: ensure we always return an array
+            console.log('getFilteredGigs: Returning', filtered.length, 'gigs');
             return Array.isArray(filtered) ? filtered : [];
         }
 
         function renderGigs() {
             const container = document.getElementById('gigsContainer');
-            if (!container) return;
+            if (!container) {
+                console.log('No gigsContainer element found');
+                return;
+            }
 
+            console.log('renderGigs called, gigs.length:', gigs.length);
+            
             const filteredGigs = getFilteredGigs();
+            console.log('filteredGigs.length:', filteredGigs.length);
+            
             const today = new Date().toISOString().split('T')[0];
+            console.log('Today:', today);
 
             // Create a state signature to check if we need to re-render
             const currentState = JSON.stringify({
@@ -1169,6 +1212,7 @@
                 return;
             }
             
+            console.log('Rendering with viewMode:', viewMode);
             lastRenderedGigsState = currentState;
 
             if (viewMode === 'calendar') {
