@@ -2220,7 +2220,7 @@
                 <!-- Desktop Table View -->
                 <div class="hidden md:block overflow-x-auto">
                     <table class="w-full border-collapse">
-                        <thead>
+                        <thead class="sticky top-0 z-10">
                             <tr class="bg-zinc-900 border-b border-zinc-700">
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm">Date</th>
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm">Event</th>
@@ -2230,7 +2230,6 @@
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm">🎵 Audio</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm">✂️ Edits</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm">📝 Blog</th>
-                                <th class="text-left p-4 text-white font-bold uppercase text-sm">🤝 Vendors</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -2300,29 +2299,6 @@
                                                 </a>
                                             ` : `<span class="text-zinc-600 text-xs">—</span>`}
                                         </td>
-                                        <td class="p-4 text-left align-top">
-                                            ${g.media.vendors ? (() => {
-                                                // Parse vendors - split by comma, newline, or semicolon
-                                                const vendorList = g.media.vendors.split(/[,\n;]+/).map(v => v.trim()).filter(v => v);
-                                                if (vendorList.length === 0) return `<span class="text-zinc-600 text-xs">—</span>`;
-                                                
-                                                return vendorList.map(vendor => {
-                                                    // Remove @ symbol and clean up the username
-                                                    const username = vendor.replace('@', '').trim();
-                                                    if (!username) return '';
-                                                    
-                                                    const instagramUrl = `https://www.instagram.com/${username}`;
-                                                    return `
-                                                        <a href="${escapeHtml(instagramUrl)}" 
-                                                           target="_blank" 
-                                                           rel="noopener noreferrer"
-                                                           class="text-zinc-400 hover:text-white text-xs transition-colors block mb-1">
-                                                            @${escapeHtml(username)}
-                                                        </a>
-                                                    `;
-                                                }).join('');
-                                            })() : `<span class="text-zinc-600 text-xs">—</span>`}
-                                        </td>
                                     </tr>
                                 `;
                             }).join('')}
@@ -2380,31 +2356,6 @@
                                         </a>
                                     ` : ''}
                                 </div>
-                                
-                                <!-- Vendors -->
-                                ${g.media.vendors ? `
-                                    <div class="mt-3 pt-3 border-t border-zinc-800">
-                                        <p class="text-zinc-500 text-xs font-bold uppercase mb-2">🤝 Vendors:</p>
-                                        <div class="flex flex-wrap gap-2">
-                                            ${(() => {
-                                                const vendorList = g.media.vendors.split(/[,\n;]+/).map(v => v.trim()).filter(v => v);
-                                                return vendorList.map(vendor => {
-                                                    const username = vendor.replace('@', '').trim();
-                                                    if (!username) return '';
-                                                    const instagramUrl = `https://www.instagram.com/${username}`;
-                                                    return `
-                                                        <a href="${escapeHtml(instagramUrl)}" 
-                                                           target="_blank" 
-                                                           rel="noopener noreferrer"
-                                                           class="text-zinc-400 hover:text-white text-xs transition-colors">
-                                                            @${escapeHtml(username)}
-                                                        </a>
-                                                    `;
-                                                }).join('');
-                                            })()}
-                                        </div>
-                                    </div>
-                                ` : ''}
                             </div>
                         `;
                     }).join('')}
