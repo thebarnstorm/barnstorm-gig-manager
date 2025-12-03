@@ -919,7 +919,8 @@
                 pastGigsSection.style.display = viewMode === 'list' ? 'block' : 'none';
             }
             
-            renderGigs();
+            // Regenerate the entire gigs view to update search bar visibility
+            showGigsView();
         };
 
         window.toggleMyGigsFilter = function() {
