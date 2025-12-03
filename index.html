@@ -651,6 +651,15 @@
                                         >
                                             Resources
                                         </button>
+                                        ${currentUser.email === 'booking@thebarnstorm.com' ? `
+                                            <button 
+                                                onclick="window.switchView('subs'); window.toggleMobileMenu();" 
+                                                id="subsNavBtnMobile"
+                                                class="text-white font-bold uppercase text-sm"
+                                            >
+                                                ⚠️ Subs
+                                            </button>
+                                        ` : ''}
                                         <button 
                                             onclick="window.switchView('profile'); window.toggleMobileMenu();" 
                                             id="profileNavBtnMobile"
@@ -701,6 +710,16 @@
                                     >
                                         Resources
                                     </button>
+                                    ${currentUser.email === 'booking@thebarnstorm.com' ? `
+                                        <button 
+                                            onclick="window.switchView('subs')" 
+                                            id="subsNavBtn"
+                                            class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                            aria-label="View sub alerts"
+                                        >
+                                            ⚠️ Subs
+                                        </button>
+                                    ` : ''}
                                     <button 
                                         onclick="window.switchView('profile')" 
                                         id="profileNavBtn"
@@ -786,6 +805,7 @@
             document.getElementById('membersNavBtn')?.classList.toggle('bg-zinc-800', view === 'members');
             document.getElementById('mediaNavBtn')?.classList.toggle('bg-zinc-800', view === 'media');
             document.getElementById('resourcesNavBtn')?.classList.toggle('bg-zinc-800', view === 'resources');
+            document.getElementById('subsNavBtn')?.classList.toggle('bg-zinc-800', view === 'subs');
             document.getElementById('profileNavBtn')?.classList.toggle('bg-zinc-800', view === 'profile');
             
             if (view === 'gigs') {
@@ -796,6 +816,8 @@
                 showMediaView();
             } else if (view === 'resources') {
                 showResourcesView();
+            } else if (view === 'subs') {
+                showSubAlertsView();
             } else if (view === 'profile') {
                 showProfileView();
             }
@@ -1721,9 +1743,9 @@
                 day: 'numeric' 
             });
             
-            // Filter out empty musicians and production entries
-            const musicians = (g.musicians || []).filter(m => m.memberName && m.memberName.trim() !== '');
-            const production = (g.production || []).filter(p => p.memberName && p.memberName.trim() !== '');
+            // Filter out empty musicians and production entries (but keep NEED positions)
+            const musicians = (g.musicians || []).filter(m => m.isNeed || (m.memberName && m.memberName.trim() !== ''));
+            const production = (g.production || []).filter(p => p.isNeed || (p.memberName && p.memberName.trim() !== ''));
             
             // Find previous and next gigs
             const filteredGigs = getFilteredGigs();
@@ -1947,7 +1969,7 @@
                                             ${musicians.map((m, index) => {
                                                 const member = members.find(x => x.name === m.memberName);
                                                 const isCurrentUser = window.isCurrentUserMember(m.memberName);
-                                                const needsSub = m.memberName?.toUpperCase().includes('NEED');
+                                                const needsSub = m.isNeed === true;
                                                 const isNA = m.isNA === true;
                                                 return `
                                                     <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
@@ -1960,7 +1982,7 @@
                                                         `}
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
-                                                                ${needsSub ? 'NEED SUB' : escapeHtml(m.memberName)}
+                                                                ${needsSub ? '⚠️ NEED SUB' : escapeHtml(m.memberName)}
                                                                 ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
                                                             </p>
                                                             <p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>
@@ -1988,7 +2010,7 @@
                                             ${production.map((p, index) => {
                                                 const member = members.find(x => x.name === p.memberName);
                                                 const isCurrentUser = window.isCurrentUserMember(p.memberName);
-                                                const needsSub = p.memberName?.toUpperCase().includes('NEED');
+                                                const needsSub = p.isNeed === true;
                                                 const isNA = p.isNA === true;
                                                 return `
                                                     <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
@@ -2001,7 +2023,7 @@
                                                         `}
                                                         <div class="flex-1 min-w-0">
                                                             <p class="text-white font-bold text-sm truncate ${isNA ? 'line-through text-zinc-500' : ''}">
-                                                                ${needsSub ? 'NEED SUB' : escapeHtml(p.memberName)}
+                                                                ${needsSub ? '⚠️ NEED SUB' : escapeHtml(p.memberName)}
                                                                 ${isNA ? ' <span class="text-red-500 text-xs">(N/A)</span>' : ''}
                                                             </p>
                                                             <p class="text-zinc-400 text-xs truncate">${escapeHtml(p.role || '')}</p>
@@ -2359,6 +2381,107 @@
                             </div>
                         `;
                     }).join('')}
+                </div>
+            `;
+        }
+
+        function showSubAlertsView() {
+            console.log('showSubAlertsView called');
+            
+            // Get today's date
+            const today = new Date().toISOString().split('T')[0];
+            
+            // Find all upcoming gigs that need subs
+            const upcomingGigsWithNeeds = gigs.filter(g => {
+                // Only future gigs
+                if (g.date < today) return false;
+                
+                // Check if any musician or production role needs a sub
+                const needsMusician = (g.musicians || []).some(m => m.isNeed === true);
+                const needsProduction = (g.production || []).some(p => p.isNeed === true);
+                
+                return needsMusician || needsProduction;
+            }).sort((a, b) => a.date.localeCompare(b.date)); // Sort by date ascending
+            
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <h2 class="text-3xl font-bold text-white uppercase mb-6">⚠️ Sub Alerts</h2>
+                    
+                    ${upcomingGigsWithNeeds.length === 0 ? `
+                        <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
+                            <p class="text-zinc-400 text-lg mb-4">✅ No subs needed!</p>
+                            <p class="text-zinc-500 text-sm">All upcoming gigs are fully staffed.</p>
+                        </div>
+                    ` : `
+                        <div class="mb-4 text-zinc-400 text-sm">
+                            Found <span class="text-white font-bold">${upcomingGigsWithNeeds.length}</span> upcoming gig${upcomingGigsWithNeeds.length !== 1 ? 's' : ''} that need subs
+                        </div>
+                        
+                        <div class="space-y-4">
+                            ${upcomingGigsWithNeeds.map(g => {
+                                const gigDate = new Date(g.date + 'T00:00:00');
+                                const formattedDate = gigDate.toLocaleDateString('en-US', { 
+                                    weekday: 'short',
+                                    year: 'numeric', 
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                });
+                                
+                                // Get all positions that need subs
+                                const musicianNeeds = (g.musicians || []).filter(m => m.isNeed === true);
+                                const productionNeeds = (g.production || []).filter(p => p.isNeed === true);
+                                const totalNeeds = musicianNeeds.length + productionNeeds.length;
+                                
+                                return `
+                                    <div class="bg-zinc-900 border border-yellow-600 p-6 hover:bg-zinc-800 transition-colors">
+                                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
+                                            <div>
+                                                <time class="text-yellow-400 text-xs uppercase font-bold block mb-2">${formattedDate}</time>
+                                                <h3 class="text-white text-xl font-bold">${escapeHtml(g.eventName || 'Event')}</h3>
+                                                <p class="text-zinc-400 text-sm mt-1">${escapeHtml(g.venue || '')}</p>
+                                            </div>
+                                            <button 
+                                                onclick="window.showGigDetail('${g.id}')"
+                                                class="px-4 py-2 bg-white text-black font-bold uppercase text-xs hover:bg-zinc-200 transition-colors rounded flex-shrink-0"
+                                            >
+                                                View Details →
+                                            </button>
+                                        </div>
+                                        
+                                        <div class="border-t border-zinc-800 pt-4">
+                                            <p class="text-yellow-400 font-bold text-sm mb-3">
+                                                ⚠️ ${totalNeeds} Position${totalNeeds !== 1 ? 's' : ''} Need${totalNeeds === 1 ? 's' : ''} Sub${totalNeeds !== 1 ? 's' : ''}:
+                                            </p>
+                                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                ${musicianNeeds.map(m => `
+                                                    <div class="bg-black border border-yellow-800 p-3 flex items-center gap-3">
+                                                        <div class="w-10 h-10 bg-yellow-900 border border-yellow-700 rounded-full flex items-center justify-center flex-shrink-0">
+                                                            <span class="text-yellow-400 text-lg">🎵</span>
+                                                        </div>
+                                                        <div>
+                                                            <p class="text-white font-bold text-sm">Need Musician</p>
+                                                            <p class="text-yellow-400 text-xs">${escapeHtml(m.instrument || 'Unknown Role')}</p>
+                                                        </div>
+                                                    </div>
+                                                `).join('')}
+                                                ${productionNeeds.map(p => `
+                                                    <div class="bg-black border border-yellow-800 p-3 flex items-center gap-3">
+                                                        <div class="w-10 h-10 bg-yellow-900 border border-yellow-700 rounded-full flex items-center justify-center flex-shrink-0">
+                                                            <span class="text-yellow-400 text-lg">🎬</span>
+                                                        </div>
+                                                        <div>
+                                                            <p class="text-white font-bold text-sm">Need Production</p>
+                                                            <p class="text-yellow-400 text-xs">${escapeHtml(p.role || 'Unknown Role')}</p>
+                                                        </div>
+                                                    </div>
+                                                `).join('')}
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `}
                 </div>
             `;
         }
