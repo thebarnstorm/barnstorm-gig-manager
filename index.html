@@ -2218,20 +2218,21 @@
             // Table layout with rows for each performance
             container.innerHTML = `
                 <!-- Desktop Table View -->
-                <div class="hidden md:block overflow-x-auto">
-                    <table class="w-full border-collapse">
-                        <thead class="sticky top-0 z-10">
-                            <tr class="bg-zinc-900 border-b border-zinc-700">
-                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Date</th>
-                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Event</th>
-                                <th class="text-left p-4 text-white font-bold uppercase text-sm">Venue</th>
-                                <th class="text-center p-4 text-white font-bold uppercase text-sm">📷 Photo</th>
-                                <th class="text-center p-4 text-white font-bold uppercase text-sm">🎥 Video</th>
-                                <th class="text-center p-4 text-white font-bold uppercase text-sm">🎵 Audio</th>
-                                <th class="text-center p-4 text-white font-bold uppercase text-sm">✂️ Edits</th>
-                                <th class="text-center p-4 text-white font-bold uppercase text-sm">📝 Blog</th>
-                            </tr>
-                        </thead>
+                <div class="hidden md:block">
+                    <div class="overflow-x-auto -mx-4 md:mx-0">
+                        <table class="w-full border-collapse">
+                            <thead class="sticky top-[73px] z-40 bg-zinc-950">
+                                <tr class="bg-zinc-900 border-b border-zinc-700">
+                                    <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Date</th>
+                                    <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Event</th>
+                                    <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Venue</th>
+                                    <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">📷 Photo</th>
+                                    <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎥 Video</th>
+                                    <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎵 Audio</th>
+                                    <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">✂️ Edits</th>
+                                    <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">📝 Blog</th>
+                                </tr>
+                            </thead>
                         <tbody>
                             ${pastGigsWithMedia.map(g => {
                                 const gigDate = new Date(g.date + 'T00:00:00');
