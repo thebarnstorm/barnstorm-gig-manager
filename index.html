@@ -248,6 +248,7 @@
         let currentCalendarDate = new Date();
         let showMyGigsOnly = false;
         let searchQuery = '';
+        let mediaSearchQuery = '';
         let gigsCache = null;
         let gigsCacheTimestamp = null;
         
@@ -810,16 +811,19 @@
                     
                     <!-- Filter controls -->
                     <div class="mb-6 space-y-4">
-                        <!-- Search bar -->
-                        <div class="w-full">
-                            <input 
-                                type="text" 
-                                id="gigSearchInput"
-                                placeholder="🔍 Search gigs (venue, event name, vendor, etc.)"
-                                class="w-full px-4 py-3 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:border-white transition-colors"
-                                oninput="window.handleGigSearch(this.value)"
-                            />
-                        </div>
+                        <!-- Search bar (only in List view) -->
+                        ${viewMode === 'list' ? `
+                            <div class="w-full">
+                                <input 
+                                    type="text" 
+                                    id="gigSearchInput"
+                                    value="${escapeHtml(searchQuery)}"
+                                    placeholder="🔍 Search gigs (venue, event name, vendor, etc.)"
+                                    class="w-full px-4 py-3 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:border-white transition-colors"
+                                    oninput="window.handleGigSearch(this.value)"
+                                />
+                            </div>
+                        ` : ''}
                         
                         <div class="flex flex-wrap gap-2">
                             <button 
@@ -888,6 +892,12 @@
             } else {
                 viewMode = viewMode === 'list' ? 'calendar' : 'list';
             }
+            
+            // Clear search query when switching to calendar view (search only in list)
+            if (viewMode === 'calendar') {
+                searchQuery = '';
+            }
+            
             currentPage = 1; // Reset pagination
             lastRenderedGigsState = null; // Force re-render
             
@@ -930,6 +940,11 @@
         window.handleGigSearch = function(query) {
             searchQuery = query.toLowerCase().trim();
             renderGigs();
+        };
+
+        window.handleMediaSearch = function(query) {
+            mediaSearchQuery = query.toLowerCase().trim();
+            showMediaView();
         };
 
         window.refreshGigs = function() {
@@ -1608,8 +1623,9 @@
                 day: 'numeric' 
             });
             
-            const musicians = g.musicians || [];
-            const production = g.production || [];
+            // Filter out empty musicians and production entries
+            const musicians = (g.musicians || []).filter(m => m.memberName && m.memberName.trim() !== '');
+            const production = (g.production || []).filter(p => p.memberName && p.memberName.trim() !== '');
             
             // Find previous and next gigs
             const filteredGigs = getFilteredGigs();
@@ -2046,6 +2062,20 @@
                     if (hasMedia) {
                         console.log(`Gig ${g.eventName}: date=${g.date}, isPast=${isPast}, hasMedia=${hasMedia}`);
                     }
+                    
+                    // Apply search filter if search query exists
+                    if (mediaSearchQuery && isPast && hasMedia) {
+                        const searchFields = [
+                            g.eventName || '',
+                            g.venue || '',
+                            g.address || '',
+                            g.media?.photographer || '',
+                            g.media?.vendors || ''
+                        ];
+                        const searchableText = searchFields.join(' ').toLowerCase();
+                        return searchableText.includes(mediaSearchQuery);
+                    }
+                    
                     return isPast && hasMedia;
                 })
                 .sort((a, b) => b.date.localeCompare(a.date)); // Newest first
@@ -2061,9 +2091,21 @@
                 <div>
                     <h2 class="text-3xl font-bold text-white uppercase mb-6">📸 Media Archive</h2>
                     
+                    <!-- Search bar for Media -->
+                    <div class="w-full mb-6">
+                        <input 
+                            type="text" 
+                            id="mediaSearchInput"
+                            value="${escapeHtml(mediaSearchQuery)}"
+                            placeholder="🔍 Search media (venue, event name, etc.)"
+                            class="w-full px-4 py-3 bg-zinc-800 text-white border border-zinc-700 rounded focus:outline-none focus:border-white transition-colors"
+                            oninput="window.handleMediaSearch(this.value)"
+                        />
+                    </div>
+                    
                     ${photoGigs.length === 0 && videoGigs.length === 0 && audioGigs.length === 0 ? `
                         <div class="bg-zinc-900 border border-zinc-800 p-8 text-center">
-                            <p class="text-zinc-400 text-lg">No media available yet. Media will appear here after past gigs.</p>
+                            <p class="text-zinc-400 text-lg">${mediaSearchQuery ? 'No media found matching your search.' : 'No media available yet. Media will appear here after past gigs.'}</p>
                         </div>
                     ` : ''}
                     
