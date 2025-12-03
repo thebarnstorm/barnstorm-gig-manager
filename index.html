@@ -221,7 +221,7 @@
         import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js';
 
         // *** REPLACE THIS URL WITH YOUR APPS SCRIPT WEB APP URL ***
-        const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbzfT03GVJRlX9ts_k0hNtzTHED9Nca7xUKeBhOofDNM4d24oJ3Z7dsDnYyJbAHDtfuj/exec';
+        const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyWcMInHCr76-Jq2F8a0xhVynsxo6SPtLLz5iKvL2K9wj3UKY8O5c1dCbzmkGHnOG0l/exec';
 
         const firebaseConfig = {
             apiKey: "AIzaSyDhYBUzbpBBv40-X6SLASGikxoMUWcCU5Q",
@@ -266,18 +266,33 @@
         let membersUnsubscribe = null;
 
         onAuthStateChanged(auth, (user) => {
+            console.log('=== AUTH STATE CHANGED ===');
+            console.log('User:', user);
             if (user) {
+                console.log('User logged in - UID:', user.uid);
+                console.log('User email:', user.email);
+                console.log('User displayName:', user.displayName);
+                
                 const isOwner = user.uid === OWNER_UID;
+                console.log('Is owner?', isOwner);
+                
                 currentUser = {
                     uid: user.uid,
                     email: user.email,
                     name: user.displayName || user.email.split('@')[0],
                     role: isOwner ? 'owner' : 'member'
                 };
+                
+                console.log('CurrentUser object:', currentUser);
+                console.log('About to call loadMembers()');
                 loadMembers();
+                console.log('About to call loadGigsFromSheet()');
                 loadGigsFromSheet();
+                console.log('About to call showMainApp()');
                 showMainApp();
+                console.log('=== AUTH STATE PROCESSING COMPLETE ===');
             } else {
+                console.log('No user logged in');
                 currentUser = null;
                 showLogin();
             }
@@ -306,17 +321,29 @@
         }
 
         async function loadGigsFromSheet(forceRefresh = false) {
+            console.log('=== LOAD GIGS FROM SHEET START ===');
+            console.log('forceRefresh:', forceRefresh);
+            
             const now = Date.now();
             const cacheExpiry = 5 * 60 * 1000;
             
+            console.log('Cache check - gigsCache exists?', !!gigsCache);
+            console.log('Cache check - gigsCacheTimestamp:', gigsCacheTimestamp);
+            console.log('Cache check - age:', now - gigsCacheTimestamp, 'ms');
+            
             if (!forceRefresh && gigsCache && gigsCacheTimestamp && (now - gigsCacheTimestamp) < cacheExpiry) {
-                console.log('Using cached gigs data');
+                console.log('Using cached gigs data - count:', gigsCache.length);
                 gigs = gigsCache;
                 if (document.getElementById('gigsContainer')) {
+                    console.log('gigsContainer exists, calling renderGigs()');
                     renderGigs();
+                } else {
+                    console.log('gigsContainer does not exist yet');
                 }
                 return;
             }
+            
+            console.log('Fetching fresh data from API...');
 
             const container = document.getElementById('gigsContainer');
             if (container) {
@@ -341,14 +368,25 @@
                 }
                 
                 const data = await response.json();
-                console.log('RAW API Response:', JSON.stringify(data).substring(0, 500));
-                console.log('Full data object:', data);
-                console.log('data.gigs exists?', !!data.gigs);
+                console.log('=== API RESPONSE RECEIVED ===');
+                console.log('typeof data:', typeof data);
                 console.log('Is data an array?', Array.isArray(data));
+                console.log('data keys:', Object.keys(data));
+                console.log('data.gigs exists?', 'gigs' in data);
                 console.log('Is data.gigs an array?', Array.isArray(data.gigs));
+                if (data.gigs) {
+                    console.log('data.gigs length:', data.gigs.length);
+                }
+                console.log('First 1000 chars of data:', JSON.stringify(data).substring(0, 1000));
+                console.log('Full data object keys and types:');
+                for (const key in data) {
+                    console.log(`  ${key}: ${typeof data[key]}, isArray: ${Array.isArray(data[key])}`);
+                }
                 
                 // Handle both old and new API formats
                 let gigsArray = data.gigs || data;
+                console.log('After extraction - gigsArray type:', typeof gigsArray);
+                console.log('After extraction - is array?', Array.isArray(gigsArray));
                 
                 // If it's not an array, something is wrong
                 if (!Array.isArray(gigsArray)) {
@@ -413,21 +451,33 @@
                 console.log('gigsArray length AFTER transform:', gigsArray.length);
                 console.log('First gig AFTER transform:', gigsArray[0]);
                 
+                console.log('=== SETTING GIGS ARRAY ===');
                 gigs = gigsArray;
                 gigsCache = gigsArray;
                 gigsCacheTimestamp = now;
+                console.log('gigs variable now has', gigs.length, 'items');
+                console.log('gigsCache now has', gigsCache.length, 'items');
                 
                 // Reset render state to force a re-render with new data
                 lastRenderedGigsState = null;
+                console.log('Render state reset');
                 
                 if (container) {
                     container.setAttribute('aria-busy', 'false');
+                    console.log('Container aria-busy set to false');
                 }
                 
                 // Only render if the container exists
-                if (document.getElementById('gigsContainer')) {
+                const gigsContainerCheck = document.getElementById('gigsContainer');
+                console.log('Checking for gigsContainer:', !!gigsContainerCheck);
+                if (gigsContainerCheck) {
+                    console.log('=== CALLING renderGigs() ===');
                     renderGigs();
+                    console.log('=== renderGigs() call complete ===');
+                } else {
+                    console.log('WARNING: gigsContainer not found, skipping render');
                 }
+                console.log('=== LOAD GIGS FROM SHEET COMPLETE ===');
             } catch (error) {
                 console.error('Error loading gigs:', error);
                 if (container) {
@@ -777,10 +827,15 @@
         };
 
         function showGigsView() {
-            const isOwner = currentUser.role === 'owner';
-            
-            // Reset render state to ensure calendar shows up
-            lastRenderedGigsState = null;
+            try {
+                console.log('=== showGigsView START ===');
+                console.log('Current gigs array length:', gigs.length);
+                console.log('View mode:', viewMode);
+                
+                const isOwner = currentUser.role === 'owner';
+                
+                // Reset render state to ensure calendar shows up
+                lastRenderedGigsState = null;
             
             document.getElementById('contentArea').innerHTML = `
                 <div>
@@ -883,7 +938,22 @@
                 </div>
             `;
             
+            console.log('=== Calling renderGigs() from showGigsView ===');
             renderGigs();
+            console.log('=== showGigsView END ===');
+            } catch (error) {
+                console.error('ERROR in showGigsView:', error);
+                console.error('Error stack:', error.stack);
+                document.getElementById('contentArea').innerHTML = `
+                    <div class="bg-red-900 border border-red-700 p-8 text-white">
+                        <h2 class="text-2xl font-bold mb-4">Error Loading Gigs View</h2>
+                        <p class="mb-4">${escapeHtml(error.message)}</p>
+                        <button onclick="window.location.reload()" class="px-4 py-2 bg-white text-black font-bold uppercase text-sm">
+                            Reload Page
+                        </button>
+                    </div>
+                `;
+            }
         }
 
         window.toggleViewMode = function(mode) {
