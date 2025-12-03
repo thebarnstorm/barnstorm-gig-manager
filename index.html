@@ -592,16 +592,6 @@
             });
         }
 
-        function hasUpcomingSubsNeeded() {
-            const today = new Date().toISOString().split('T')[0];
-            return gigs.some(g => {
-                if (g.date < today) return false;
-                const needsMusician = (g.musicians || []).some(m => m.isNeed === true);
-                const needsProduction = (g.production || []).some(p => p.isNeed === true);
-                return needsMusician || needsProduction;
-            });
-        }
-
         function showMainApp() {
             document.getElementById('app').innerHTML = `
                 <div class="min-h-screen bg-black">
@@ -661,7 +651,7 @@
                                         >
                                             Resources
                                         </button>
-                                        ${currentUser.email === 'booking@thebarnstorm.com' && hasUpcomingSubsNeeded() ? `
+                                        ${currentUser.email === 'booking@thebarnstorm.com' ? `
                                             <button 
                                                 onclick="window.switchView('subs'); window.toggleMobileMenu();" 
                                                 id="subsNavBtnMobile"
@@ -720,7 +710,7 @@
                                     >
                                         Resources
                                     </button>
-                                    ${currentUser.email === 'booking@thebarnstorm.com' && hasUpcomingSubsNeeded() ? `
+                                    ${currentUser.email === 'booking@thebarnstorm.com' ? `
                                         <button 
                                             onclick="window.switchView('subs')" 
                                             id="subsNavBtn"
