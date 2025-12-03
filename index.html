@@ -990,6 +990,12 @@
         };
         
         function getFilteredGigs() {
+            // Safety check: ensure gigs is an array
+            if (!Array.isArray(gigs)) {
+                console.error('gigs is not an array:', gigs);
+                return [];
+            }
+            
             let filtered = gigs;
             
             // Apply "My Gigs" filter
@@ -1075,24 +1081,30 @@
             
             // Apply search filter
             if (searchQuery) {
-                filtered = filtered.filter(gig => {
-                    const searchFields = [
-                        gig.eventName || '',
-                        gig.venue || '',
-                        gig.address || '',
-                        gig.type || '',
-                        ...(gig.musicians || []).map(m => m.name || ''),
-                        ...(gig.production || []).map(p => p.name || ''),
-                        gig.media?.photographer || '',
-                        gig.media?.vendors || ''
-                    ];
-                    
-                    const searchableText = searchFields.join(' ').toLowerCase();
-                    return searchableText.includes(searchQuery);
-                });
+                try {
+                    filtered = filtered.filter(gig => {
+                        const searchFields = [
+                            gig.eventName || '',
+                            gig.venue || '',
+                            gig.address || '',
+                            gig.type || '',
+                            ...(gig.musicians || []).map(m => m.memberName || ''),
+                            ...(gig.production || []).map(p => p.memberName || ''),
+                            gig.media?.photographer || '',
+                            gig.media?.vendors || ''
+                        ];
+                        
+                        const searchableText = searchFields.join(' ').toLowerCase();
+                        return searchableText.includes(searchQuery);
+                    });
+                } catch (error) {
+                    console.error('Error in search filter:', error);
+                    // Return unfiltered if search fails
+                }
             }
             
-            return filtered;
+            // Safety check: ensure we always return an array
+            return Array.isArray(filtered) ? filtered : [];
         }
 
         function renderGigs() {
