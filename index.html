@@ -4,20 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Barnstorm - Gig Manager</title>
-    
-    <!-- PWA Meta Tags -->
-    <meta name="description" content="Manage your gigs with The Barnstorm band">
-    <meta name="theme-color" content="#000000">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="Barnstorm">
-    
-    <!-- App Icons -->
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="apple-touch-icon.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
-    
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         /* Prevent horizontal scrolling */
@@ -1329,9 +1315,9 @@
                                     ${hasGigs ? `
                                         <div class="space-y-1">
                                             ${gigsByDate[day].slice(0, 2).map(g => `
-                                                <div class="bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 p-1 sm:p-1.5 rounded transition-colors ${isPast ? 'opacity-75' : ''}">
+                                                <div class="bg-gradient-to-br from-purple-600 to-purple-800 hover:from-purple-500 hover:to-purple-700 border border-purple-500 p-1 sm:p-1.5 rounded transition-all ${isPast ? 'opacity-75' : ''}">
                                                     <div class="gig-event-name text-white font-bold leading-tight">${escapeHtml(g.eventName || 'Event')}</div>
-                                                    <div class="text-zinc-400 text-xs truncate leading-tight hidden sm:block">${escapeHtml(g.venue || '')}</div>
+                                                    <div class="text-purple-100 text-xs truncate leading-tight hidden sm:block">${escapeHtml(g.venue || '')}</div>
                                                 </div>
                                             `).join('')}
                                             ${gigsByDate[day].length > 2 ? `
