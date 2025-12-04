@@ -2309,7 +2309,6 @@
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Date</th>
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Event</th>
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Venue</th>
-                                <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Location</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">📷 Photo</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎥 Video</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎵 Audio</th>
@@ -2333,8 +2332,10 @@
                                             <div class="text-white font-bold">${escapeHtml(g.eventName || 'Event')}</div>
                                             ${g.media.photographer ? `<div class="text-zinc-500 text-xs mt-1">📸 ${escapeHtml(g.media.photographer)}</div>` : ''}
                                         </td>
-                                        <td class="p-4 text-zinc-400 text-sm">${escapeHtml(g.venue || '')}</td>
-                                        <td class="p-4 text-zinc-400 text-sm">${escapeHtml(extractCityState(g.address) || '')}</td>
+                                        <td class="p-4">
+                                            <div class="text-zinc-400 text-sm">${escapeHtml(g.venue || '')}</div>
+                                            ${g.address ? `<div class="text-zinc-500 text-xs mt-1">📍 ${escapeHtml(extractCityState(g.address))}</div>` : ''}
+                                        </td>
                                         <td class="p-4 text-center">
                                             ${g.media.photo ? `
                                                 <a href="${escapeHtml(g.media.photo)}" 
