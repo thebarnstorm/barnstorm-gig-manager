@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>The Barnstorm - Gig Manager</title>
     
     <!-- PWA Meta Tags -->
@@ -35,6 +35,7 @@
         /* Mobile touch optimizations */
         * {
             -webkit-tap-highlight-color: rgba(255, 255, 255, 0.1);
+            touch-action: manipulation; /* Disables double-tap zoom */
         }
         
         /* Minimum touch target size for mobile */
@@ -536,6 +537,32 @@
             return div.innerHTML;
         }
         
+        // Extract city and state from full address
+        function extractCityState(address) {
+            if (!address) return '';
+            
+            // Common patterns:
+            // "123 Main St, New York, NY 10001"
+            // "123 Main St, Brooklyn, NY"
+            // "Venue Name, 123 Main St, New York, NY"
+            
+            const parts = address.split(',').map(p => p.trim());
+            
+            if (parts.length >= 2) {
+                // Get last two parts (usually "City" and "State ZIP")
+                const state = parts[parts.length - 1];
+                const city = parts[parts.length - 2];
+                
+                // Extract just state abbreviation (first 2 letters before any digits)
+                const stateMatch = state.match(/^([A-Z]{2})/);
+                const stateAbbr = stateMatch ? stateMatch[1] : state.trim();
+                
+                return `${city}, ${stateAbbr}`;
+            }
+            
+            return address;
+        }
+        
         // Skeleton loader for better perceived performance
         function renderSkeletonLoader() {
             return `
@@ -970,7 +997,7 @@
                             <h3 id="currentMonthLabel" class="text-base md:text-xl font-bold text-white text-center whitespace-nowrap"></h3>
                             <button 
                                 onclick="window.goToToday()" 
-                                class="px-2 md:px-3 py-1 bg-blue-600 text-white font-bold text-xs uppercase hover:bg-blue-700 transition-colors hidden sm:inline-block"
+                                class="px-2 md:px-3 py-1 bg-blue-600 text-white font-bold text-xs uppercase hover:bg-blue-700 transition-colors"
                                 aria-label="Go to current month"
                             >
                                 Today
@@ -2282,6 +2309,7 @@
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Date</th>
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Event</th>
                                 <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Venue</th>
+                                <th class="text-left p-4 text-white font-bold uppercase text-sm bg-zinc-900">Location</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">📷 Photo</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎥 Video</th>
                                 <th class="text-center p-4 text-white font-bold uppercase text-sm bg-zinc-900">🎵 Audio</th>
@@ -2306,6 +2334,7 @@
                                             ${g.media.photographer ? `<div class="text-zinc-500 text-xs mt-1">📸 ${escapeHtml(g.media.photographer)}</div>` : ''}
                                         </td>
                                         <td class="p-4 text-zinc-400 text-sm">${escapeHtml(g.venue || '')}</td>
+                                        <td class="p-4 text-zinc-400 text-sm">${escapeHtml(extractCityState(g.address) || '')}</td>
                                         <td class="p-4 text-center">
                                             ${g.media.photo ? `
                                                 <a href="${escapeHtml(g.media.photo)}" 
@@ -2377,7 +2406,8 @@
                             <div class="bg-zinc-900 border border-zinc-800 p-4">
                                 <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
                                 <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
-                                <p class="text-zinc-400 text-sm mb-3">${escapeHtml(g.venue || '')}</p>
+                                <p class="text-zinc-400 text-sm mb-1">${escapeHtml(g.venue || '')}</p>
+                                ${g.address ? `<p class="text-zinc-500 text-xs mb-3">📍 ${escapeHtml(extractCityState(g.address))}</p>` : ''}
                                 ${g.media.photographer ? `<p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>` : ''}
                                 
                                 <!-- Media Links -->
