@@ -1160,29 +1160,27 @@
             const userName = currentUser.name?.toLowerCase().trim() || '';
             const memberNameLower = memberName.toLowerCase().trim();
             
-            // Exact match
+            // Exact full name match (most common case)
             if (memberNameLower === userName) return true;
             
-            // Check if user name is contained in member name
-            if (memberNameLower.includes(userName)) return true;
+            // Split into parts and require BOTH first AND last name to match
+            const userParts = userName.split(/[\s@._-]+/).filter(p => p.length > 0);
+            const memberParts = memberNameLower.split(/[\s@._-]+/).filter(p => p.length > 0);
             
-            // Check if member name is contained in user name
-            if (userName.includes(memberNameLower)) return true;
+            // Need at least first and last name for both
+            if (userParts.length < 2 || memberParts.length < 2) {
+                return false; // Can't reliably match with just one name
+            }
             
-            // Split names and check individual parts
-            const userParts = userName.split(/[\s@._-]+/);
-            const memberParts = memberNameLower.split(/[\s@._-]+/);
+            // Extract first and last name from each
+            const userFirst = userParts[0];
+            const userLast = userParts[userParts.length - 1];
+            const memberFirst = memberParts[0];
+            const memberLast = memberParts[memberParts.length - 1];
             
-            // Check first name + last name match
-            for (const userPart of userParts) {
-                if (userPart.length > 2) {
-                    for (const memberPart of memberParts) {
-                        if (memberPart.length > 2 && 
-                            (userPart === memberPart || userPart.includes(memberPart) || memberPart.includes(userPart))) {
-                            return true;
-                        }
-                    }
-                }
+            // Both first AND last must match exactly (no partial matches)
+            if (userFirst === memberFirst && userLast === memberLast) {
+                return true;
             }
             
             return false;
@@ -1190,6 +1188,37 @@
         
         // Mark member as N/A for a gig
         window.markAsNA = async function(gigId, type, index, memberName, role) {
+            console.log('markAsNA called with:', { gigId, type, index, memberName, role });
+            console.log('Current user:', currentUser.name);
+            
+            // SECURITY: Strict check - both first AND last name must match exactly
+            const userName = currentUser.name?.toLowerCase().trim() || '';
+            const memberNameLower = memberName.toLowerCase().trim();
+            
+            // Split into parts
+            const userParts = userName.split(/[\s@._-]+/).filter(p => p.length > 0);
+            const memberParts = memberNameLower.split(/[\s@._-]+/).filter(p => p.length > 0);
+            
+            // Exact full match
+            let isMatch = userName === memberNameLower;
+            
+            // Or first + last name match
+            if (!isMatch && userParts.length >= 2 && memberParts.length >= 2) {
+                const userFirst = userParts[0];
+                const userLast = userParts[userParts.length - 1];
+                const memberFirst = memberParts[0];
+                const memberLast = memberParts[memberParts.length - 1];
+                isMatch = (userFirst === memberFirst && userLast === memberLast);
+            }
+            
+            if (!isMatch) {
+                alert(`You can only mark yourself as N/A.\n\nYou are logged in as: ${currentUser.name}\nYou tried to mark: ${memberName}\n\nIf this is your name spelled differently, please contact booking@thebarnstorm.com.`);
+                console.log('Name mismatch - access denied');
+                return;
+            }
+            
+            console.log('Name match confirmed - proceeding');
+            
             const gig = gigs.find(g => g.id === gigId);
             if (!gig) {
                 alert('Gig not found');
@@ -1201,6 +1230,8 @@
             if (!confirm(confirmMsg)) return;
             
             try {
+                console.log('Sending POST request to:', GOOGLE_SHEET_API_URL);
+                
                 // Show loading state
                 const modal = document.querySelector('[role="dialog"]');
                 if (modal) {
@@ -1211,22 +1242,22 @@
                     }
                 }
                 
-                // Build URL with parameters (GET request for CORS compatibility)
-                const params = new URLSearchParams({
-                    action: 'markNA',
-                    gigId: gigId,
-                    gigDate: gig.date,
-                    eventName: gig.eventName || '',
-                    venue: gig.venue || '',
-                    type: type,
-                    memberIndex: index,
-                    memberName: memberName,
-                    role: role || '',
-                    userEmail: currentUser.email
+                // Send POST request to Apps Script
+                const response = await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        gigId: gigId,
+                        memberName: memberName,
+                        type: type
+                    })
                 });
                 
-                const response = await fetch(`${GOOGLE_SHEET_API_URL}?${params.toString()}`);
+                console.log('Response status:', response.status);
                 const result = await response.json();
+                console.log('Response data:', result);
                 
                 if (result.success) {
                     alert('You have been marked as N/A. An email has been sent to booking@thebarnstorm.com.');
@@ -1241,8 +1272,8 @@
                     }
                     
                     // Clear cache to force refresh on next load
-                    gigsCache = null;
-                    gigsCacheTimestamp = null;
+                    localStorage.removeItem('barnstorm_gigs_cache');
+                    localStorage.removeItem('barnstorm_gigs_cache_time');
                     
                     // Refresh the gig detail modal
                     modal?.remove();
