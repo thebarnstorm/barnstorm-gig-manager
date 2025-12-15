@@ -309,6 +309,28 @@
             membersUnsubscribe = onSnapshot(query(collection(db, 'members'), orderBy('name', 'asc')), (snapshot) => {
                 const newMembers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 
+                // Update currentUser.name if we find a matching member by email
+                if (currentUser && currentUser.email) {
+                    const matchingMember = newMembers.find(m => 
+                        m.email && m.email.toLowerCase() === currentUser.email.toLowerCase()
+                    );
+                    
+                    if (matchingMember && matchingMember.name) {
+                        const oldName = currentUser.name;
+                        currentUser.name = matchingMember.name;
+                        console.log('✅ Updated currentUser.name from:', oldName, 'to:', currentUser.name);
+                        
+                        // If name changed and we're viewing a gig detail, refresh it
+                        if (oldName !== currentUser.name && currentView === 'gigs') {
+                            console.log('Name updated - forcing gig view refresh');
+                            lastRenderedGigsState = null; // Force re-render
+                            if (document.getElementById('gigsContainer')) {
+                                renderGigs();
+                            }
+                        }
+                    }
+                }
+                
                 // Only update if members actually changed
                 if (JSON.stringify(newMembers) !== JSON.stringify(members)) {
                     members = newMembers;
