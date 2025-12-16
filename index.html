@@ -1267,6 +1267,7 @@
                 // Send POST request to Apps Script
                 const response = await fetch(GOOGLE_SHEET_API_URL, {
                     method: 'POST',
+                    mode: 'no-cors', // Bypass CORS preflight
                     headers: {
                         'Content-Type': 'application/json',
                     },
@@ -1277,35 +1278,31 @@
                     })
                 });
                 
-                console.log('Response status:', response.status);
-                const result = await response.json();
-                console.log('Response data:', result);
+                console.log('Request sent successfully');
                 
-                if (result.success) {
-                    alert('You have been marked as N/A. An email has been sent to booking@thebarnstorm.com.');
-                    
-                    // Update local gigs data to reflect the change
-                    if (type === 'musician' && gig.musicians && gig.musicians[index]) {
-                        gig.musicians[index].isNA = true;
-                        gig.musicians[index].originalName = memberName;
-                    } else if (type === 'production' && gig.production && gig.production[index]) {
-                        gig.production[index].isNA = true;
-                        gig.production[index].originalName = memberName;
-                    }
-                    
-                    // Clear cache to force refresh on next load
-                    localStorage.removeItem('barnstorm_gigs_cache');
-                    localStorage.removeItem('barnstorm_gigs_cache_time');
-                    
-                    // Refresh the gig detail modal
-                    modal?.remove();
-                    window.showGigDetail(gigId);
-                } else {
-                    throw new Error(result.error || 'Failed to update');
+                // With no-cors mode, we can't read the response
+                // But the request should go through
+                alert('Your N/A request has been sent!\n\nAn email should be sent to booking@thebarnstorm.com.\n\nPlease check with them to confirm it was received.');
+                
+                // Update local gigs data to reflect the change
+                if (type === 'musician' && gig.musicians && gig.musicians[index]) {
+                    gig.musicians[index].isNA = true;
+                    gig.musicians[index].originalName = memberName;
+                } else if (type === 'production' && gig.production && gig.production[index]) {
+                    gig.production[index].isNA = true;
+                    gig.production[index].originalName = memberName;
                 }
+                
+                // Clear cache to force refresh on next load
+                localStorage.removeItem('barnstorm_gigs_cache');
+                localStorage.removeItem('barnstorm_gigs_cache_time');
+                
+                // Refresh the gig detail modal
+                modal?.remove();
+                window.showGigDetail(gigId);
             } catch (error) {
-                console.error('Error marking as N/A:', error);
-                alert('Error marking as N/A: ' + error.message + '\n\nPlease contact booking@thebarnstorm.com directly.');
+                console.error('Error sending N/A request:', error);
+                alert('There was an error sending your N/A request.\n\nPlease contact booking@thebarnstorm.com directly:\n"I need a sub for ' + gig.eventName + ' on ' + gig.date + ' (' + role + ')"');
             }
         };
         
