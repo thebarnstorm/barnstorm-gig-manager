@@ -222,7 +222,7 @@
         import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js';
 
         // *** REPLACE THIS URL WITH YOUR APPS SCRIPT WEB APP URL ***
-        const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyUOBc7lmcKJ1k8r9yJx3TcpMt7BCITaPahYczZny13-bmA8p5oOmG-lmPtdpxfX6no/exec';
+        const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbz7fH7YqzXBLewvvx8Qmc62Cl7bkEkdTshXdP3YB0-cpKaU8UQMFIqippGQ3nyzx-8/exec';
 
         const firebaseConfig = {
             apiKey: "AIzaSyDhYBUzbpBBv40-X6SLASGikxoMUWcCU5Q",
@@ -2083,6 +2083,10 @@
                                                 const isCurrentUser = window.isCurrentUserMember(m.memberName);
                                                 const needsSub = m.isNeed === true;
                                                 const isNA = m.isNA === true;
+                                                const gigDate = new Date(g.date);
+                                                const today = new Date();
+                                                today.setHours(0, 0, 0, 0);
+                                                const isFutureGig = gigDate >= today;
                                                 return `
                                                     <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
                                                         ${member?.photoURL && !needsSub && !isNA ? `
@@ -2099,7 +2103,7 @@
                                                             </p>
                                                             ${!needsSub ? `<p class="text-zinc-400 text-xs truncate">${escapeHtml(m.instrument || '')}</p>` : ''}
                                                         </div>
-                                                        ${isCurrentUser && !isNA ? `
+                                                        ${isCurrentUser && !isNA && isFutureGig ? `
                                                             <button 
                                                                 onclick="window.markAsNA('${g.id}', 'musician', ${index}, '${escapeHtml(m.memberName)}', '${escapeHtml(m.instrument || '')}')"
                                                                 class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
@@ -2124,6 +2128,10 @@
                                                 const isCurrentUser = window.isCurrentUserMember(p.memberName);
                                                 const needsSub = p.isNeed === true;
                                                 const isNA = p.isNA === true;
+                                                const gigDate = new Date(g.date);
+                                                const today = new Date();
+                                                today.setHours(0, 0, 0, 0);
+                                                const isFutureGig = gigDate >= today;
                                                 return `
                                                     <div class="bg-black border ${needsSub ? 'border-yellow-600' : isNA ? 'border-red-600' : 'border-zinc-800'} p-3 flex items-center gap-3 rounded">
                                                         ${member?.photoURL && !needsSub && !isNA ? `
@@ -2140,7 +2148,7 @@
                                                             </p>
                                                             ${!needsSub ? `<p class="text-zinc-400 text-xs truncate">${escapeHtml(p.role || '')}</p>` : ''}
                                                         </div>
-                                                        ${isCurrentUser && !isNA ? `
+                                                        ${isCurrentUser && !isNA && isFutureGig ? `
                                                             <button 
                                                                 onclick="window.markAsNA('${g.id}', 'production', ${index}, '${escapeHtml(p.memberName)}', '${escapeHtml(p.role || '')}')"
                                                                 class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
