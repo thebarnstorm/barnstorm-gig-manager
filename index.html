@@ -2751,9 +2751,8 @@
                 const note = document.getElementById('notificationStatusNote');
                 if (!btn || !note) return;
                 if (status === 'granted') {
-                    btn.textContent = 'Notifications Enabled ✓';
-                    btn.disabled = true;
-                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                    btn.textContent = 'Resync Notifications';
+                    note.textContent = 'Notifications are allowed on this device. Tap to (re)save your device to the notification list.';
                 } else if (status === 'denied') {
                     btn.textContent = 'Notifications Blocked';
                     btn.disabled = true;
