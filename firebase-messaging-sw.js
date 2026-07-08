@@ -24,9 +24,11 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
     console.log('Background push received:', payload);
 
-    const title = payload.notification?.title || 'The Barnstorm';
+    // We send data-only messages (see PushNotifications.gs) to avoid
+    // duplicate notifications, so title/body come from payload.data.
+    const title = payload.data?.title || 'The Barnstorm';
     const options = {
-        body: payload.notification?.body || '',
+        body: payload.data?.body || '',
         icon: 'https://www.dropbox.com/scl/fi/05pdxbaub02h1qa6pk9dp/Barnstorm-Logo.jpg?rlkey=8fghkclk4vvz0nxjkr2dninl5&st=1q1vn1b1&raw=1',
         badge: 'https://www.dropbox.com/scl/fi/05pdxbaub02h1qa6pk9dp/Barnstorm-Logo.jpg?rlkey=8fghkclk4vvz0nxjkr2dninl5&st=1q1vn1b1&raw=1',
         data: payload.data || {}
