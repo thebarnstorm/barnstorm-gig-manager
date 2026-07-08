@@ -220,6 +220,7 @@
         import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged, updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
         import { getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, query, orderBy, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js';
         import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-storage.js';
+        import { getMessaging, getToken, onMessage, isSupported } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging.js';
 
         // *** REPLACE THIS URL WITH YOUR APPS SCRIPT WEB APP URL ***
         const GOOGLE_SHEET_API_URL = 'https://script.google.com/macros/s/AKfycbyjxPmvRrNPM5EItGBWuhZ4zTsq2yd0s4eQSPrg2VAxcPP4RUorVMCR8Qj6tsL2-xVY/exec';
@@ -232,6 +233,10 @@
             messagingSenderId: "819468934815",
             appId: "1:819468934815:web:9959740caf4bec736eccaa"
         };
+
+        // *** REPLACE THIS WITH YOUR FIREBASE CLOUD MESSAGING "WEB PUSH CERTIFICATE" KEY ***
+        // Find it in: Firebase Console > Project Settings > Cloud Messaging tab > Web configuration > Web Push certificates
+        const VAPID_KEY = 'BOo_BMJFsabOHZyEZdHLfQkBlkAotKbt5rdIzwVxgIOQuhz7ljUD0f20Fjn1wqUPqeYiTD_qAFt-rOiuWVtvZZ4';
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -2639,6 +2644,20 @@
                         ` : ''}
                     </div>
                     
+                    <!-- Notifications Section -->
+                    <div class="bg-zinc-900 border border-zinc-800 p-6 mb-6">
+                        <h3 class="text-lg font-bold text-white uppercase mb-2">Notifications</h3>
+                        <p class="text-zinc-400 text-sm mb-4">Get push alerts for new gig assignments, day-before reminders, and schedule changes.</p>
+                        <button
+                            id="enableNotificationsBtn"
+                            onclick="window.enablePushNotifications()"
+                            class="px-6 py-3 bg-white text-black font-bold uppercase text-sm hover:bg-zinc-200 transition-colors"
+                        >
+                            Enable Notifications
+                        </button>
+                        <p id="notificationStatusNote" class="text-zinc-500 text-xs mt-2"></p>
+                    </div>
+
                     <!-- Update Photo Section -->
                     ${userMember ? `
                         <div class="bg-zinc-900 border border-zinc-800 p-6 mb-6">
@@ -2725,6 +2744,27 @@
                     </div>
                 </div>
             `;
+
+            // Reflect current notification permission state in the button
+            getNotificationStatus().then(status => {
+                const btn = document.getElementById('enableNotificationsBtn');
+                const note = document.getElementById('notificationStatusNote');
+                if (!btn || !note) return;
+                if (status === 'granted') {
+                    btn.textContent = 'Notifications Enabled ✓';
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                } else if (status === 'denied') {
+                    btn.textContent = 'Notifications Blocked';
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                    note.textContent = 'Notifications are blocked in your browser/phone settings for this site.';
+                } else if (status === 'unsupported') {
+                    btn.textContent = 'Not Supported On This Device';
+                    btn.disabled = true;
+                    btn.classList.add('opacity-50', 'cursor-not-allowed');
+                }
+            });
         }
 
         window.updateProfilePhoto = async function(memberId) {
@@ -2758,6 +2798,75 @@
                 showProfileView(); // Refresh the view
             } catch (error) {
                 alert('Error updating photo: ' + error.message);
+            }
+        };
+
+        // --- Push Notifications ---
+
+        async function getNotificationStatus() {
+            try {
+                if (!('Notification' in window) || !('serviceWorker' in navigator)) return 'unsupported';
+                const supported = await isSupported();
+                if (!supported) return 'unsupported';
+                return Notification.permission; // 'default' | 'granted' | 'denied'
+            } catch (e) {
+                console.error('Error checking notification support:', e);
+                return 'unsupported';
+            }
+        }
+
+        window.enablePushNotifications = async function() {
+            const btn = document.getElementById('enableNotificationsBtn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Enabling...'; }
+
+            try {
+                const status = await getNotificationStatus();
+                if (status === 'unsupported') {
+                    alert('Push notifications are not supported on this browser or device.');
+                    return;
+                }
+                if (status === 'denied') {
+                    alert('Notifications are blocked for this site in your browser settings. Please enable them in your phone/browser settings, then try again.');
+                    return;
+                }
+
+                const permission = await Notification.requestPermission();
+                if (permission !== 'granted') {
+                    alert('Notifications were not enabled. You can turn them on anytime from this Profile page.');
+                    return;
+                }
+
+                const registration = await navigator.serviceWorker.register('firebase-messaging-sw.js');
+                const messaging = getMessaging(app);
+                const token = await getToken(messaging, {
+                    vapidKey: VAPID_KEY,
+                    serviceWorkerRegistration: registration
+                });
+
+                if (!token) {
+                    alert('Could not get a notification token. Please try again.');
+                    return;
+                }
+
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'savePushToken',
+                        name: currentUser.name,
+                        email: currentUser.email,
+                        token: token
+                    })
+                });
+
+                alert("Notifications enabled! You'll get alerts for new gigs, reminders, and updates.");
+                showProfileView();
+            } catch (error) {
+                console.error('Error enabling notifications:', error);
+                alert('Something went wrong enabling notifications. Please try again or check with booking@thebarnstorm.com.');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Enable Notifications'; }
             }
         };
 
