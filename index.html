@@ -270,6 +270,7 @@
         // Previous render state to avoid unnecessary re-renders
         let lastRenderedGigsState = null;
         let membersUnsubscribe = null;
+        let messagesUnsubscribe = null;
 
         onAuthStateChanged(auth, (user) => {
             console.log('=== AUTH STATE CHANGED ===');
@@ -748,6 +749,13 @@
                                             >
                                                 ⚠️ Subs
                                             </button>
+                                            <button 
+                                                onclick="window.switchView('messages'); window.toggleMobileMenu();" 
+                                                id="messagesNavBtnMobile"
+                                                class="text-white font-bold uppercase text-sm"
+                                            >
+                                                Messages
+                                            </button>
                                         ` : ''}
                                         <button 
                                             onclick="window.switchView('profile'); window.toggleMobileMenu();" 
@@ -807,6 +815,14 @@
                                             aria-label="View sub alerts"
                                         >
                                             ⚠️ Subs
+                                        </button>
+                                        <button 
+                                            onclick="window.switchView('messages')" 
+                                            id="messagesNavBtn"
+                                            class="px-3 py-2 text-white font-bold uppercase text-xs md:text-sm hover:bg-zinc-800 transition-colors rounded"
+                                            aria-label="View messages"
+                                        >
+                                            Messages
                                         </button>
                                     ` : ''}
                                     <button 
@@ -895,7 +911,14 @@
             document.getElementById('mediaNavBtn')?.classList.toggle('bg-zinc-800', view === 'media');
             document.getElementById('resourcesNavBtn')?.classList.toggle('bg-zinc-800', view === 'resources');
             document.getElementById('subsNavBtn')?.classList.toggle('bg-zinc-800', view === 'subs');
+            document.getElementById('messagesNavBtn')?.classList.toggle('bg-zinc-800', view === 'messages');
             document.getElementById('profileNavBtn')?.classList.toggle('bg-zinc-800', view === 'profile');
+            
+            // Stop listening for new messages if we've navigated away from that view
+            if (view !== 'messages' && messagesUnsubscribe) {
+                messagesUnsubscribe();
+                messagesUnsubscribe = null;
+            }
             
             if (view === 'gigs') {
                 showGigsView();
@@ -907,6 +930,8 @@
                 showResourcesView();
             } else if (view === 'subs') {
                 showSubAlertsView();
+            } else if (view === 'messages') {
+                showMessagesView();
             } else if (view === 'profile') {
                 showProfileView();
             }
@@ -918,6 +943,10 @@
                 if (membersUnsubscribe) {
                     membersUnsubscribe();
                     membersUnsubscribe = null;
+                }
+                if (messagesUnsubscribe) {
+                    messagesUnsubscribe();
+                    messagesUnsubscribe = null;
                 }
                 await signOut(auth);
             } catch (error) {
@@ -2222,6 +2251,65 @@
                 </div>
             `;
             renderMembers();
+        }
+
+        function showMessagesView() {
+            document.getElementById('contentArea').innerHTML = `
+                <div>
+                    <h2 class="text-2xl md:text-3xl font-bold text-white uppercase mb-6">Messages</h2>
+                    <div id="messagesList" class="space-y-3" role="list" aria-label="Incoming text messages">
+                        <p class="text-zinc-500">Loading messages...</p>
+                    </div>
+                </div>
+            `;
+
+            // Unsubscribe any previous listener before starting a new one
+            if (messagesUnsubscribe) {
+                messagesUnsubscribe();
+                messagesUnsubscribe = null;
+            }
+
+            messagesUnsubscribe = onSnapshot(
+                query(collection(db, 'messages'), orderBy('timestamp', 'desc')),
+                (snapshot) => {
+                    const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderMessagesList(msgs);
+                },
+                (error) => {
+                    console.error('Messages listener error:', error);
+                    const el = document.getElementById('messagesList');
+                    if (el) {
+                        el.innerHTML = `<p class="text-red-500">Error loading messages: ${escapeHtml(error.message)}</p>`;
+                    }
+                }
+            );
+        }
+
+        function renderMessagesList(msgs) {
+            const container = document.getElementById('messagesList');
+            if (!container) return; // user navigated away before this fired
+
+            if (msgs.length === 0) {
+                container.innerHTML = '<p class="text-zinc-500">No messages yet.</p>';
+                return;
+            }
+
+            container.innerHTML = msgs.map(m => {
+                const when = (m.timestamp && typeof m.timestamp.toDate === 'function')
+                    ? m.timestamp.toDate().toLocaleString()
+                    : '';
+                const channelLabel = m.channel === 'whatsapp' ? 'WhatsApp' : 'SMS';
+                return `
+                    <div class="bg-zinc-900 border border-zinc-800 p-4 rounded" role="listitem">
+                        <div class="flex justify-between items-start mb-1 gap-2">
+                            <span class="text-white font-bold text-sm break-all">${escapeHtml(m.from || 'Unknown')}</span>
+                            <span class="text-zinc-500 text-xs uppercase shrink-0">${channelLabel}</span>
+                        </div>
+                        <p class="text-zinc-300 text-sm mb-1 break-words">${escapeHtml(m.body || '')}</p>
+                        <span class="text-zinc-600 text-xs">${escapeHtml(when)}</span>
+                    </div>
+                `;
+            }).join('');
         }
 
         function showResourcesView() {
