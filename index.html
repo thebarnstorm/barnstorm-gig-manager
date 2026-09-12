@@ -2525,7 +2525,7 @@
                                     <tr class="border-b border-zinc-800 hover:bg-zinc-900 transition-colors">
                                         <td class="p-4 text-zinc-400 text-sm whitespace-nowrap">${formattedDate}</td>
                                         <td class="p-4">
-                                            <div class="text-white font-bold">${escapeHtml(g.eventName || 'Event')}</div>
+                                            <button type="button" onclick="window.showGigDetail('${g.id}')" class="text-white font-bold hover:text-zinc-300 hover:underline text-left cursor-pointer bg-transparent border-0 p-0">${escapeHtml(g.eventName || 'Event')}</button>
                                             ${g.media.photographer ? `<div class="text-zinc-500 text-xs mt-1">📸 ${escapeHtml(g.media.photographer)}</div>` : ''}
                                         </td>
                                         <td class="p-4">
@@ -2622,7 +2622,7 @@
                         return `
                             <div class="bg-zinc-900 border border-zinc-800 p-4">
                                 <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
+                                <button type="button" onclick="window.showGigDetail('${g.id}')" class="text-white font-bold text-lg mb-1 hover:underline text-left cursor-pointer bg-transparent border-0 p-0 block">${escapeHtml(g.eventName || 'Event')}</button>
                                 <p class="text-zinc-400 text-sm mb-1">${escapeHtml(g.venue || '')}</p>
                                 ${g.address ? `<p class="text-zinc-500 text-xs mb-3">📍 ${escapeHtml(extractCityState(g.address))}</p>` : ''}
                                 ${g.media.photographer ? `<p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>` : ''}
