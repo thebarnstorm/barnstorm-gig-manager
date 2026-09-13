@@ -2389,7 +2389,8 @@
             container.innerHTML = `
                 <div>
                     <button onclick="window.backToConversationList('${channel}')" class="text-zinc-400 hover:text-white text-sm mb-4">&larr; All ${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} conversations</button>
-                    <h3 class="text-white font-bold mb-4 break-all">${escapeHtml(number)}</h3>
+                    <h3 class="text-white font-bold mb-2 break-all">${escapeHtml(number)}</h3>
+                    ${channel === 'sms' ? `<div id="insightlyInfo-${escapeHtml(number).replace(/[^a-zA-Z0-9]/g, '_')}" class="mb-4 text-sm text-zinc-500">Looking up contact...</div>` : ''}
                     <div class="space-y-2 mb-4 max-h-[50vh] overflow-y-auto" role="list" aria-label="Message thread">
                         ${thread.map(m => {
                             const when = (m.timestamp && typeof m.timestamp.toDate === 'function')
@@ -2427,6 +2428,42 @@
             // Scroll thread to the bottom so the latest message is visible
             const threadEl = container.querySelector('[role="list"][aria-label="Message thread"]');
             if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+
+            // SMS conversations are leads - look up their Insightly contact info
+            if (channel === 'sms') {
+                loadInsightlyInfo(number);
+            }
+        }
+
+        async function loadInsightlyInfo(number) {
+            const elId = 'insightlyInfo-' + number.replace(/[^a-zA-Z0-9]/g, '_');
+            const el = document.getElementById(elId);
+            if (!el) return;
+
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContact&phone=' + encodeURIComponent(number));
+                const data = await response.json();
+
+                // Bail out quietly if the user navigated away while this was loading
+                const freshEl = document.getElementById(elId);
+                if (!freshEl) return;
+
+                if (data.found) {
+                    freshEl.innerHTML = `
+                        <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
+                            <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                            ${data.title ? `<span class="text-zinc-400"> &middot; ${escapeHtml(data.title)}</span>` : ''}
+                            ${data.email ? `<div class="text-zinc-500 text-xs mt-1">${escapeHtml(data.email)}</div>` : ''}
+                        </div>
+                    `;
+                } else {
+                    freshEl.innerHTML = '<span class="text-zinc-600">No matching Insightly contact found.</span>';
+                }
+            } catch (err) {
+                console.error('Insightly lookup error:', err);
+                const freshEl = document.getElementById(elId);
+                if (freshEl) freshEl.innerHTML = '<span class="text-zinc-600">Couldn\'t load contact info.</span>';
+            }
         }
 
         window.openConversation = function(number, channel) {
