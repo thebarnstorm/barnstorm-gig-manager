@@ -565,6 +565,11 @@
             return div.innerHTML;
         }
         
+        // Returns true if a media field value is a literal "n/a" marker (not a real link)
+        function isNA(value) {
+            return typeof value === 'string' && value.trim().toUpperCase() === 'N/A';
+        }
+        
         // Extract city and state from full address
         function extractCityState(address) {
             if (!address) return '';
@@ -2022,7 +2027,15 @@
                         <div class="pb-6 border-b border-zinc-800 mb-6">
                             <h3 class="text-xs text-zinc-400 mb-4 uppercase tracking-wider">📸 Media & Documentation</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                ${g.media.photo ? `
+                                ${isNA(g.media.photo) ? `
+                                    <div class="flex items-center gap-3 px-4 py-3 bg-zinc-800 border border-zinc-700 text-zinc-500 rounded cursor-default">
+                                        <span class="text-2xl">📷</span>
+                                        <div>
+                                            <p class="font-bold text-sm">Photos</p>
+                                            <p class="text-xs text-zinc-500">N/A</p>
+                                        </div>
+                                    </div>
+                                ` : g.media.photo ? `
                                     <a href="${escapeHtml(g.media.photo)}" 
                                        target="_blank" 
                                        rel="noopener noreferrer"
@@ -2034,7 +2047,15 @@
                                         </div>
                                     </a>
                                 ` : ''}
-                                ${g.media.video ? `
+                                ${isNA(g.media.video) ? `
+                                    <div class="flex items-center gap-3 px-4 py-3 bg-zinc-800 border border-zinc-700 text-zinc-500 rounded cursor-default">
+                                        <span class="text-2xl">🎥</span>
+                                        <div>
+                                            <p class="font-bold text-sm">Video</p>
+                                            <p class="text-xs text-zinc-500">N/A</p>
+                                        </div>
+                                    </div>
+                                ` : g.media.video ? `
                                     <a href="${escapeHtml(g.media.video)}" 
                                        target="_blank" 
                                        rel="noopener noreferrer"
@@ -2046,7 +2067,15 @@
                                         </div>
                                     </a>
                                 ` : ''}
-                                ${g.media.audio ? `
+                                ${isNA(g.media.audio) ? `
+                                    <div class="flex items-center gap-3 px-4 py-3 bg-zinc-800 border border-zinc-700 text-zinc-500 rounded cursor-default">
+                                        <span class="text-2xl">🎵</span>
+                                        <div>
+                                            <p class="font-bold text-sm">Audio</p>
+                                            <p class="text-xs text-zinc-500">N/A</p>
+                                        </div>
+                                    </div>
+                                ` : g.media.audio ? `
                                     <a href="${escapeHtml(g.media.audio)}" 
                                        target="_blank" 
                                        rel="noopener noreferrer"
@@ -2067,7 +2096,15 @@
                                         </div>
                                     </div>
                                 ` : ''}
-                                ${g.media.videoEdits ? `
+                                ${isNA(g.media.videoEdits) ? `
+                                    <div class="flex items-center gap-3 px-4 py-3 bg-zinc-800 border border-zinc-700 text-zinc-500 rounded cursor-default">
+                                        <span class="text-2xl">✂️</span>
+                                        <div>
+                                            <p class="font-bold text-sm">Video Edits</p>
+                                            <p class="text-xs text-zinc-500">N/A</p>
+                                        </div>
+                                    </div>
+                                ` : g.media.videoEdits ? `
                                     <a href="${escapeHtml(g.media.videoEdits)}" 
                                        target="_blank" 
                                        rel="noopener noreferrer"
@@ -2088,7 +2125,15 @@
                                         </div>
                                     </div>
                                 ` : ''}
-                                ${g.media.blog ? `
+                                ${isNA(g.media.blog) ? `
+                                    <div class="flex items-center gap-3 px-4 py-3 bg-zinc-800 border border-zinc-700 text-zinc-500 rounded cursor-default">
+                                        <span class="text-2xl">📝</span>
+                                        <div>
+                                            <p class="font-bold text-sm">Blog Entry</p>
+                                            <p class="text-xs text-zinc-500">N/A</p>
+                                        </div>
+                                    </div>
+                                ` : g.media.blog ? `
                                     <a href="${escapeHtml(g.media.blog)}" 
                                        target="_blank" 
                                        rel="noopener noreferrer"
@@ -2617,7 +2662,7 @@
                                     <tr class="border-b border-zinc-800 hover:bg-zinc-900 transition-colors">
                                         <td class="p-4 text-zinc-400 text-sm whitespace-nowrap">${formattedDate}</td>
                                         <td class="p-4">
-                                            <div class="text-white font-bold">${escapeHtml(g.eventName || 'Event')}</div>
+                                            <div class="text-white font-bold cursor-pointer hover:underline" onclick="window.showGigDetail('${g.id}')">${escapeHtml(g.eventName || 'Event')}</div>
                                             ${g.media.photographer ? `<div class="text-zinc-500 text-xs mt-1">📸 ${escapeHtml(g.media.photographer)}</div>` : ''}
                                         </td>
                                         <td class="p-4">
@@ -2625,7 +2670,7 @@
                                             ${g.address ? `<div class="text-zinc-500 text-xs mt-1">📍 ${escapeHtml(extractCityState(g.address))}</div>` : ''}
                                         </td>
                                         <td class="p-4 text-center">
-                                            ${g.media.photo ? `
+                                            ${isNA(g.media.photo) ? `<span class="inline-block px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">N/A</span>` : g.media.photo ? `
                                                 <a href="${escapeHtml(g.media.photo)}" 
                                                    target="_blank" 
                                                    rel="noopener noreferrer"
@@ -2635,7 +2680,7 @@
                                             ` : `<span class="text-zinc-600 text-xs">—</span>`}
                                         </td>
                                         <td class="p-4 text-center">
-                                            ${g.media.video ? `
+                                            ${isNA(g.media.video) ? `<span class="inline-block px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">N/A</span>` : g.media.video ? `
                                                 <a href="${escapeHtml(g.media.video)}" 
                                                    target="_blank" 
                                                    rel="noopener noreferrer"
@@ -2645,7 +2690,7 @@
                                             ` : `<span class="text-zinc-600 text-xs">—</span>`}
                                         </td>
                                         <td class="p-4 text-center">
-                                            ${g.media.audio ? `
+                                            ${isNA(g.media.audio) ? `<span class="inline-block px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">N/A</span>` : g.media.audio ? `
                                                 <a href="${escapeHtml(g.media.audio)}" 
                                                    target="_blank" 
                                                    rel="noopener noreferrer"
@@ -2655,7 +2700,7 @@
                                             ` : `<span class="text-zinc-600 text-xs">—</span>`}
                                         </td>
                                         <td class="p-4 text-center">
-                                            ${g.media.videoEdits ? `
+                                            ${isNA(g.media.videoEdits) ? `<span class="inline-block px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">N/A</span>` : g.media.videoEdits ? `
                                                 <a href="${escapeHtml(g.media.videoEdits)}" 
                                                    target="_blank" 
                                                    rel="noopener noreferrer"
@@ -2665,7 +2710,7 @@
                                             ` : `<span class="text-zinc-600 text-xs">—</span>`}
                                         </td>
                                         <td class="p-4 text-center">
-                                            ${g.media.blog ? `
+                                            ${isNA(g.media.blog) ? `<span class="inline-block px-3 py-1 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">N/A</span>` : g.media.blog ? `
                                                 <a href="${escapeHtml(g.media.blog)}" 
                                                    target="_blank" 
                                                    rel="noopener noreferrer"
@@ -2694,38 +2739,38 @@
                         return `
                             <div class="bg-zinc-900 border border-zinc-800 p-4">
                                 <time class="text-zinc-400 text-xs uppercase block mb-2">${formattedDate}</time>
-                                <h4 class="text-white font-bold text-lg mb-1">${escapeHtml(g.eventName || 'Event')}</h4>
+                                <h4 class="text-white font-bold text-lg mb-1 cursor-pointer hover:underline" onclick="window.showGigDetail('${g.id}')">${escapeHtml(g.eventName || 'Event')}</h4>
                                 <p class="text-zinc-400 text-sm mb-1">${escapeHtml(g.venue || '')}</p>
                                 ${g.address ? `<p class="text-zinc-500 text-xs mb-3">📍 ${escapeHtml(extractCityState(g.address))}</p>` : ''}
                                 ${g.media.photographer ? `<p class="text-zinc-500 text-xs mb-3">📸 ${escapeHtml(g.media.photographer)}</p>` : ''}
                                 
                                 <!-- Media Links -->
                                 <div class="flex flex-wrap gap-2">
-                                    ${g.media.photo ? `
+                                    ${isNA(g.media.photo) ? `<span class="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">📷 N/A</span>` : g.media.photo ? `
                                         <a href="${escapeHtml(g.media.photo)}" target="_blank" rel="noopener noreferrer"
                                            class="px-3 py-1.5 bg-purple-900 bg-opacity-50 border border-purple-700 text-purple-400 text-xs font-bold">
                                             📷 Photo
                                         </a>
                                     ` : ''}
-                                    ${g.media.video ? `
+                                    ${isNA(g.media.video) ? `<span class="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">🎥 N/A</span>` : g.media.video ? `
                                         <a href="${escapeHtml(g.media.video)}" target="_blank" rel="noopener noreferrer"
                                            class="px-3 py-1.5 bg-red-900 bg-opacity-50 border border-red-700 text-red-400 text-xs font-bold">
                                             🎥 Video
                                         </a>
                                     ` : ''}
-                                    ${g.media.audio ? `
+                                    ${isNA(g.media.audio) ? `<span class="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">🎵 N/A</span>` : g.media.audio ? `
                                         <a href="${escapeHtml(g.media.audio)}" target="_blank" rel="noopener noreferrer"
                                            class="px-3 py-1.5 bg-blue-900 bg-opacity-50 border border-blue-700 text-blue-400 text-xs font-bold">
                                             🎵 Audio
                                         </a>
                                     ` : ''}
-                                    ${g.media.videoEdits ? `
+                                    ${isNA(g.media.videoEdits) ? `<span class="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">✂️ N/A</span>` : g.media.videoEdits ? `
                                         <a href="${escapeHtml(g.media.videoEdits)}" target="_blank" rel="noopener noreferrer"
                                            class="px-3 py-1.5 bg-indigo-900 bg-opacity-50 border border-indigo-700 text-indigo-400 text-xs font-bold">
                                             ✂️ Edits
                                         </a>
                                     ` : ''}
-                                    ${g.media.blog ? `
+                                    ${isNA(g.media.blog) ? `<span class="px-3 py-1.5 bg-zinc-800 border border-zinc-700 text-zinc-500 text-xs font-bold">📝 N/A</span>` : g.media.blog ? `
                                         <a href="${escapeHtml(g.media.blog)}" target="_blank" rel="noopener noreferrer"
                                            class="px-3 py-1.5 bg-green-900 bg-opacity-50 border border-green-700 text-green-400 text-xs font-bold">
                                             📝 Blog
