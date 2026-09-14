@@ -2398,7 +2398,7 @@
             `;
         }
 
-        window.openNewReferralForm = async function() {
+        window.openNewReferralForm = async function(prefill) {
             const overlay = document.createElement('div');
             overlay.id = 'referralFormOverlay';
             overlay.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4';
@@ -2426,6 +2426,15 @@
                 </div>
             `;
             document.body.appendChild(overlay);
+
+            if (prefill) {
+                if (prefill.date) document.getElementById('refDate').value = prefill.date;
+                if (prefill.eventType) document.getElementById('refEventType').value = prefill.eventType;
+                if (prefill.venue) document.getElementById('refVenue').value = prefill.venue;
+                if (prefill.headcount) document.getElementById('refHeadcount').value = prefill.headcount;
+                if (prefill.budget) document.getElementById('refBudget').value = prefill.budget;
+                if (prefill.moreInfo) document.getElementById('refMoreInfo').value = prefill.moreInfo;
+            }
 
             try {
                 const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRosterGroups');
@@ -2635,6 +2644,8 @@
             }
         }
 
+        let insightlyDataByNumber = {};
+
         async function loadInsightlyInfo(number) {
             const elId = 'insightlyInfo-' + number.replace(/[^a-zA-Z0-9]/g, '_');
             const el = document.getElementById(elId);
@@ -2649,6 +2660,8 @@
                 if (!freshEl) return;
 
                 if (data.found) {
+                    insightlyDataByNumber[number] = data;
+
                     const contactFields = [
                         ['Email', data.email],
                         ['Mobile', data.mobile],
@@ -2660,6 +2673,7 @@
                         ['Event Type', data.eventType],
                         ['Venue', data.venue],
                         ['City/State', data.cityState],
+                        ['Headcount', data.headcountRange],
                         ['Budget', data.budget]
                     ].filter(([label, value]) => value);
 
@@ -2674,7 +2688,10 @@
 
                     freshEl.innerHTML = `
                         <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
-                            <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                            <div class="flex justify-between items-start gap-2">
+                                <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                                <button onclick="window.openReferralFromLead('${escapeHtml(number).replace(/'/g, "\\'")}')" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded shrink-0">Refer This Lead</button>
+                            </div>
                             <div class="grid grid-cols-2 gap-x-4 gap-y-3 mt-2">
                                 <div class="space-y-2">
                                     ${contactFields.map(([label, value]) => fieldBlock(label, value)).join('')}
@@ -2700,6 +2717,25 @@
                 if (freshEl) freshEl.innerHTML = '<span class="text-zinc-600">Couldn\'t load contact info.</span>';
             }
         }
+
+        window.openReferralFromLead = function(number) {
+            const data = insightlyDataByNumber[number];
+            if (!data) return;
+
+            const moreInfoParts = [];
+            if (data.cityState) moreInfoParts.push('Location: ' + data.cityState);
+            if (data.description) moreInfoParts.push(data.description);
+            if (data.otherInfo) moreInfoParts.push(data.otherInfo);
+
+            window.openNewReferralForm({
+                date: data.eventDate || '',
+                eventType: data.eventType || '',
+                venue: data.venue || '',
+                headcount: data.headcountRange || '',
+                budget: data.budget || '',
+                moreInfo: moreInfoParts.join('\n\n')
+            });
+        };
 
         window.openConversation = function(number, channel) {
             if (channel === 'whatsapp') {
