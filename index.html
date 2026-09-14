@@ -2355,6 +2355,27 @@
             renderReferralsList();
         }
 
+        window.deleteReferral = async function(referralId) {
+            if (!confirm('Clear this referral? This removes it and its response tracking - it cannot be undone.')) return;
+
+            try {
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'deleteReferral',
+                        referralId: referralId
+                    })
+                });
+                // With no-cors we can't read the response, but the list
+                // will update automatically once Firestore reflects the delete.
+            } catch (err) {
+                console.error('Delete referral error:', err);
+                alert('There was a problem clearing that referral. Please try again.');
+            }
+        };
+
         function renderReferralsList() {
             const container = document.getElementById('referralsList');
             if (!container) return; // not on the Messages view right now
@@ -2380,7 +2401,10 @@
                                     ${escapeHtml(summary || 'Referral')}
                                     <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded</span>
                                 </summary>
-                                <div class="mt-2 text-zinc-500 text-xs">${escapeHtml(when)}</div>
+                                <div class="mt-2 text-zinc-500 text-xs flex justify-between items-center">
+                                    <span>${escapeHtml(when)}</span>
+                                    <button onclick="window.deleteReferral('${ref.id}')" class="text-red-400 hover:text-red-300 uppercase text-xs font-bold">Clear</button>
+                                </div>
                                 <div class="mt-2 space-y-1">
                                     ${recipients.map(r => `
                                         <div class="flex justify-between items-start text-sm gap-2">
