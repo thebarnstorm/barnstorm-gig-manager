@@ -948,6 +948,14 @@
                     messagesUnsubscribe();
                     messagesUnsubscribe = null;
                 }
+                if (referralsUnsubscribe) {
+                    referralsUnsubscribe();
+                    referralsUnsubscribe = null;
+                }
+                if (referralRecipientsUnsubscribe) {
+                    referralRecipientsUnsubscribe();
+                    referralRecipientsUnsubscribe = null;
+                }
                 await signOut(auth);
             } catch (error) {
                 console.error('Logout error:', error);
@@ -2254,8 +2262,12 @@
         }
 
         let allMessages = [];
+        let allReferrals = [];
+        let allReferralRecipients = [];
         let selectedSmsConversation = null;
         let selectedWhatsappConversation = null;
+        let referralsUnsubscribe = null;
+        let referralRecipientsUnsubscribe = null;
 
         function showMessagesView() {
             selectedSmsConversation = null;
@@ -2269,11 +2281,13 @@
                 </div>
             `;
 
-            // Unsubscribe any previous listener before starting a new one
-            if (messagesUnsubscribe) {
-                messagesUnsubscribe();
-                messagesUnsubscribe = null;
-            }
+            // Unsubscribe any previous listeners before starting new ones
+            [messagesUnsubscribe, referralsUnsubscribe, referralRecipientsUnsubscribe].forEach(unsub => {
+                if (unsub) unsub();
+            });
+            messagesUnsubscribe = null;
+            referralsUnsubscribe = null;
+            referralRecipientsUnsubscribe = null;
 
             messagesUnsubscribe = onSnapshot(
                 query(collection(db, 'messages'), orderBy('timestamp', 'asc')),
@@ -2288,6 +2302,24 @@
                         el.innerHTML = `<p class="text-red-500">Error loading messages: ${escapeHtml(error.message)}</p>`;
                     }
                 }
+            );
+
+            referralsUnsubscribe = onSnapshot(
+                query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
+                (snapshot) => {
+                    allReferrals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderReferralsList();
+                },
+                (error) => console.error('Referrals listener error:', error)
+            );
+
+            referralRecipientsUnsubscribe = onSnapshot(
+                collection(db, 'referralRecipients'),
+                (snapshot) => {
+                    allReferralRecipients = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    renderReferralsList();
+                },
+                (error) => console.error('Referral recipients listener error:', error)
             );
         }
 
@@ -2308,7 +2340,11 @@
                         <div id="smsColumn"></div>
                     </div>
                     <div>
-                        <h3 class="text-white font-bold uppercase text-sm mb-3 tracking-wide">WhatsApp &middot; Bandleaders</h3>
+                        <div class="flex justify-between items-center mb-3">
+                            <h3 class="text-white font-bold uppercase text-sm tracking-wide">WhatsApp &middot; Bandleaders</h3>
+                            <button onclick="window.openNewReferralForm()" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded">+ New Referral</button>
+                        </div>
+                        <div id="referralsList" class="mb-4"></div>
                         <div id="whatsappColumn"></div>
                     </div>
                 </div>
@@ -2316,7 +2352,151 @@
 
             renderChannelColumn('sms');
             renderChannelColumn('whatsapp');
+            renderReferralsList();
         }
+
+        function renderReferralsList() {
+            const container = document.getElementById('referralsList');
+            if (!container) return; // not on the Messages view right now
+
+            if (allReferrals.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="space-y-2" role="list" aria-label="Referrals sent">
+                    ${allReferrals.map(ref => {
+                        const recipients = allReferralRecipients.filter(r => r.referralId === ref.id);
+                        const respondedCount = recipients.filter(r => r.status === 'responded').length;
+                        const when = (ref.createdAt && typeof ref.createdAt.toDate === 'function')
+                            ? ref.createdAt.toDate().toLocaleString()
+                            : '';
+                        const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
+                        const refElId = 'referral-' + ref.id;
+                        return `
+                            <details class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem">
+                                <summary class="cursor-pointer text-white text-sm font-bold">
+                                    ${escapeHtml(summary || 'Referral')}
+                                    <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded</span>
+                                </summary>
+                                <div class="mt-2 text-zinc-500 text-xs">${escapeHtml(when)}</div>
+                                <div class="mt-2 space-y-1">
+                                    ${recipients.map(r => `
+                                        <div class="flex justify-between items-start text-sm gap-2">
+                                            <span class="text-zinc-300">${escapeHtml(r.name)}</span>
+                                            <span class="text-right ${r.status === 'responded' ? 'text-green-400' : r.status === 'failed' ? 'text-red-400' : 'text-zinc-500'}">
+                                                ${r.status === 'responded' ? escapeHtml(r.responseText || 'Responded') : r.status === 'failed' ? 'Failed to send' : 'Awaiting response'}
+                                            </span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </details>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        window.openNewReferralForm = async function() {
+            const overlay = document.createElement('div');
+            overlay.id = 'referralFormOverlay';
+            overlay.className = 'fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4';
+            overlay.innerHTML = `
+                <div class="bg-zinc-900 border border-zinc-700 rounded max-w-lg w-full max-h-[90vh] overflow-y-auto p-6">
+                    <h3 class="text-white font-bold uppercase mb-4">New Referral</h3>
+                    <div class="space-y-3">
+                        <input id="refDate" type="text" placeholder="Date (e.g. Sat. 7/24/27)" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm" />
+                        <input id="refEventType" type="text" placeholder="Event (e.g. Wedding)" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm" />
+                        <input id="refVenue" type="text" placeholder="Venue" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm" />
+                        <input id="refHeadcount" type="text" placeholder="Headcount" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm" />
+                        <input id="refBudget" type="text" placeholder="Budget (e.g. $15,000-$20,000)" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm" />
+                        <textarea id="refMoreInfo" placeholder="More info" rows="3" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm"></textarea>
+                    </div>
+                    <div class="mt-4">
+                        <div class="text-zinc-400 text-xs uppercase mb-2">Send to</div>
+                        <div id="referralRosterList" class="space-y-1">
+                            <p class="text-zinc-500 text-sm">Loading roster...</p>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 mt-6">
+                        <button onclick="window.closeNewReferralForm()" class="flex-1 border border-zinc-700 text-zinc-300 font-bold uppercase py-2 rounded">Cancel</button>
+                        <button onclick="window.submitReferral()" class="flex-1 bg-white text-black font-bold uppercase py-2 rounded">Send</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(overlay);
+
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRoster');
+                const data = await response.json();
+                const rosterEl = document.getElementById('referralRosterList');
+                if (!rosterEl) return;
+
+                if (data.success && data.roster.length > 0) {
+                    rosterEl.innerHTML = data.roster.map((r, i) => `
+                        <label class="flex items-center gap-2 text-zinc-300 text-sm">
+                            <input type="checkbox" class="referral-recipient-checkbox" checked value="${i}" />
+                            ${escapeHtml(r.name)}
+                        </label>
+                    `).join('');
+                    rosterEl.dataset.roster = JSON.stringify(data.roster);
+                } else {
+                    rosterEl.innerHTML = '<p class="text-zinc-500 text-sm">No bandleaders found - add them to the "Bandleader Roster" sheet tab first.</p>';
+                }
+            } catch (err) {
+                console.error('Roster load error:', err);
+                const rosterEl = document.getElementById('referralRosterList');
+                if (rosterEl) rosterEl.innerHTML = '<p class="text-red-500 text-sm">Couldn\'t load roster.</p>';
+            }
+        };
+
+        window.closeNewReferralForm = function() {
+            const overlay = document.getElementById('referralFormOverlay');
+            if (overlay) overlay.remove();
+        };
+
+        window.submitReferral = async function() {
+            const rosterEl = document.getElementById('referralRosterList');
+            const roster = rosterEl && rosterEl.dataset.roster ? JSON.parse(rosterEl.dataset.roster) : [];
+            const checked = Array.from(document.querySelectorAll('.referral-recipient-checkbox:checked'));
+            const recipients = checked.map(cb => roster[parseInt(cb.value, 10)]).filter(Boolean);
+
+            if (recipients.length === 0) {
+                alert('Select at least one bandleader to send to.');
+                return;
+            }
+
+            const details = {
+                date: document.getElementById('refDate').value.trim(),
+                eventType: document.getElementById('refEventType').value.trim(),
+                venue: document.getElementById('refVenue').value.trim(),
+                headcount: document.getElementById('refHeadcount').value.trim(),
+                budget: document.getElementById('refBudget').value.trim(),
+                moreInfo: document.getElementById('refMoreInfo').value.trim()
+            };
+
+            window.closeNewReferralForm();
+
+            try {
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'createReferral',
+                        details: details,
+                        recipients: recipients
+                    })
+                });
+                // With no-cors we can't read the response, but the referral
+                // and its status will appear here automatically once
+                // Apps Script saves it to Firestore.
+            } catch (err) {
+                console.error('Create referral error:', err);
+                alert('There was a problem sending the referral. Please try again.');
+            }
+        };
 
         function renderChannelColumn(channel) {
             const containerId = channel === 'whatsapp' ? 'whatsappColumn' : 'smsColumn';
