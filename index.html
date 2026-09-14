@@ -2365,6 +2365,7 @@
                             ? c.last.timestamp.toDate().toLocaleString()
                             : '';
                         const preview = c.last.direction === 'outbound' ? 'You: ' + (c.last.body || '') : (c.last.body || '');
+                        const nameElId = 'convName-' + c.number.replace(/[^a-zA-Z0-9]/g, '_');
                         return `
                             <button
                                 onclick="window.openConversation('${escapeHtml(c.number).replace(/'/g, "\\'")}', '${channel}')"
@@ -2372,7 +2373,10 @@
                                 role="listitem"
                             >
                                 <div class="flex justify-between items-start mb-1 gap-2">
-                                    <span class="text-white font-bold text-sm break-all">${escapeHtml(c.number)}</span>
+                                    <span class="text-white font-bold text-sm break-all">
+                                        ${escapeHtml(c.number)}
+                                        ${channel === 'sms' ? `<span id="${nameElId}" class="text-zinc-400 font-normal"></span>` : ''}
+                                    </span>
                                 </div>
                                 <p class="text-zinc-400 text-sm mb-1 break-words truncate">${escapeHtml(preview)}</p>
                                 <span class="text-zinc-600 text-xs">${escapeHtml(when)}</span>
@@ -2381,6 +2385,25 @@
                     }).join('')}
                 </div>
             `;
+
+            // For SMS (leads), fill in each contact's name from Insightly once it loads
+            if (channel === 'sms') {
+                conversations.forEach(c => loadInsightlyNameForList(c.number));
+            }
+        }
+
+        async function loadInsightlyNameForList(number) {
+            const elId = 'convName-' + number.replace(/[^a-zA-Z0-9]/g, '_');
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContact&phone=' + encodeURIComponent(number));
+                const data = await response.json();
+                const el = document.getElementById(elId);
+                if (el && data.found) {
+                    el.textContent = ' \u00b7 ' + data.name;
+                }
+            } catch (err) {
+                console.error('Insightly name lookup error:', err);
+            }
         }
 
         function renderConversationThread(container, number, channel) {
@@ -2449,15 +2472,32 @@
                 if (!freshEl) return;
 
                 if (data.found) {
+                    const fields = [
+                        ['Email', data.email],
+                        ['Mobile', data.mobile],
+                        ['Lead Origin', data.leadOrigin],
+                        ['Event Date', data.eventDate],
+                        ['Event Type', data.eventType],
+                        ['Venue', data.venue],
+                        ['City/State', data.cityState],
+                        ['Budget', data.budget]
+                    ].filter(([label, value]) => value);
+
                     freshEl.innerHTML = `
                         <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
                             <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
-                            ${data.title ? `<span class="text-zinc-400"> &middot; ${escapeHtml(data.title)}</span>` : ''}
-                            ${data.email ? `<div class="text-zinc-500 text-xs mt-1">${escapeHtml(data.email)}</div>` : ''}
+                            <div class="grid grid-cols-2 gap-x-4 gap-y-1 mt-2">
+                                ${fields.map(([label, value]) => `
+                                    <div>
+                                        <span class="text-zinc-500 text-xs uppercase block">${escapeHtml(label)}</span>
+                                        <span class="text-zinc-300 text-sm break-words">${escapeHtml(value)}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
                         </div>
                     `;
                 } else {
-                    freshEl.innerHTML = '<span class="text-zinc-600">No matching Insightly contact found.</span>';
+                    freshEl.innerHTML = '<span class="text-zinc-600">No matching Insightly lead found.</span>';
                 }
             } catch (err) {
                 console.error('Insightly lookup error:', err);
