@@ -2414,9 +2414,9 @@
                         <textarea id="refMoreInfo" placeholder="More info" rows="3" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm"></textarea>
                     </div>
                     <div class="mt-4">
-                        <div class="text-zinc-400 text-xs uppercase mb-2">Send to</div>
-                        <div id="referralRosterList" class="space-y-1">
-                            <p class="text-zinc-500 text-sm">Loading roster...</p>
+                        <div class="text-zinc-400 text-xs uppercase mb-2">Send to which group(s)?</div>
+                        <div id="referralGroupsList" class="space-y-1">
+                            <p class="text-zinc-500 text-sm">Loading groups...</p>
                         </div>
                     </div>
                     <div class="flex gap-2 mt-6">
@@ -2428,26 +2428,25 @@
             document.body.appendChild(overlay);
 
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRoster');
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRosterGroups');
                 const data = await response.json();
-                const rosterEl = document.getElementById('referralRosterList');
-                if (!rosterEl) return;
+                const groupsEl = document.getElementById('referralGroupsList');
+                if (!groupsEl) return;
 
-                if (data.success && data.roster.length > 0) {
-                    rosterEl.innerHTML = data.roster.map((r, i) => `
+                if (data.success && data.groups.length > 0) {
+                    groupsEl.innerHTML = data.groups.map(g => `
                         <label class="flex items-center gap-2 text-zinc-300 text-sm">
-                            <input type="checkbox" class="referral-recipient-checkbox" checked value="${i}" />
-                            ${escapeHtml(r.name)}
+                            <input type="checkbox" class="referral-group-checkbox" value="${escapeHtml(g)}" />
+                            ${escapeHtml(g)}
                         </label>
                     `).join('');
-                    rosterEl.dataset.roster = JSON.stringify(data.roster);
                 } else {
-                    rosterEl.innerHTML = '<p class="text-zinc-500 text-sm">No bandleaders found - add them to the "Bandleader Roster" sheet tab first.</p>';
+                    groupsEl.innerHTML = '<p class="text-zinc-500 text-sm">No groups found - add a "Whatsapp Group" column to the roster sheet first.</p>';
                 }
             } catch (err) {
-                console.error('Roster load error:', err);
-                const rosterEl = document.getElementById('referralRosterList');
-                if (rosterEl) rosterEl.innerHTML = '<p class="text-red-500 text-sm">Couldn\'t load roster.</p>';
+                console.error('Roster groups load error:', err);
+                const groupsEl = document.getElementById('referralGroupsList');
+                if (groupsEl) groupsEl.innerHTML = '<p class="text-red-500 text-sm">Couldn\'t load groups.</p>';
             }
         };
 
@@ -2457,13 +2456,11 @@
         };
 
         window.submitReferral = async function() {
-            const rosterEl = document.getElementById('referralRosterList');
-            const roster = rosterEl && rosterEl.dataset.roster ? JSON.parse(rosterEl.dataset.roster) : [];
-            const checked = Array.from(document.querySelectorAll('.referral-recipient-checkbox:checked'));
-            const recipients = checked.map(cb => roster[parseInt(cb.value, 10)]).filter(Boolean);
+            const checked = Array.from(document.querySelectorAll('.referral-group-checkbox:checked'));
+            const groups = checked.map(cb => cb.value);
 
-            if (recipients.length === 0) {
-                alert('Select at least one bandleader to send to.');
+            if (groups.length === 0) {
+                alert('Select at least one group to send to.');
                 return;
             }
 
@@ -2486,7 +2483,7 @@
                     body: JSON.stringify({
                         action: 'createReferral',
                         details: details,
-                        recipients: recipients
+                        groups: groups
                     })
                 });
                 // With no-cors we can't read the response, but the referral
