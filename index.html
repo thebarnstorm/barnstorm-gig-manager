@@ -2576,17 +2576,20 @@
                             : '';
                         const preview = c.last.direction === 'outbound' ? 'You: ' + (c.last.body || '') : (c.last.body || '');
                         const nameElId = 'convName-' + c.number.replace(/[^a-zA-Z0-9]/g, '_');
+                        const unreadCount = c.messages.filter(m => m.direction !== 'outbound' && m.read === false).length;
                         return `
                             <button
                                 onclick="window.openConversation('${escapeHtml(c.number).replace(/'/g, "\\'")}', '${channel}')"
-                                class="w-full text-left bg-zinc-900 border border-zinc-800 hover:border-zinc-600 p-4 rounded transition-colors"
+                                class="w-full text-left bg-zinc-900 border ${unreadCount > 0 ? 'border-blue-500' : 'border-zinc-800'} hover:border-zinc-600 p-4 rounded transition-colors"
                                 role="listitem"
                             >
                                 <div class="flex justify-between items-start mb-1 gap-2">
                                     <span class="text-white font-bold text-sm break-all">
+                                        ${unreadCount > 0 ? '<span class="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1 align-middle"></span>' : ''}
                                         ${escapeHtml(c.number)}
                                         ${channel === 'sms' ? `<span id="${nameElId}" class="text-zinc-400 font-normal"></span>` : ''}
                                     </span>
+                                    ${unreadCount > 0 ? `<span class="text-blue-400 text-xs font-bold uppercase shrink-0">${unreadCount} new</span>` : ''}
                                 </div>
                                 <p class="text-zinc-400 text-sm mb-1 break-words truncate">${escapeHtml(preview)}</p>
                                 <span class="text-zinc-600 text-xs">${escapeHtml(when)}</span>
@@ -2768,7 +2771,32 @@
                 selectedSmsConversation = number;
             }
             renderChannelColumn(channel);
+            markConversationRead(number, channel);
         };
+
+        function markConversationRead(number, channel) {
+            const unreadIds = allMessages
+                .filter(m => (m.channel || 'sms') === channel && contactNumberFor(m) === number && m.direction !== 'outbound' && m.read === false)
+                .map(m => m.id);
+
+            if (unreadIds.length === 0) return;
+
+            // Update locally right away so the "new" badge clears instantly
+            unreadIds.forEach(id => {
+                const msg = allMessages.find(m => m.id === id);
+                if (msg) msg.read = true;
+            });
+
+            fetch(GOOGLE_SHEET_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'markMessagesRead',
+                    messageIds: unreadIds
+                })
+            }).catch(err => console.error('Mark read error:', err));
+        }
 
         window.backToConversationList = function(channel) {
             if (channel === 'whatsapp') {
