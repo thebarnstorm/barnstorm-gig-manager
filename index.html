@@ -2452,14 +2452,8 @@
                         <textarea id="refMoreInfo" placeholder="More info" rows="3" class="w-full bg-zinc-800 border border-zinc-700 text-white p-2 rounded text-sm"></textarea>
                     </div>
                     <div class="mt-4">
-                        <div class="text-zinc-400 text-xs uppercase mb-2">Send to which group(s)?</div>
-                        <div id="referralGroupsList" class="space-y-1">
-                            <p class="text-zinc-500 text-sm">Loading groups...</p>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <div class="text-zinc-400 text-xs uppercase mb-2">Or send to specific bandleader(s)</div>
-                        <div id="referralIndividualsList" class="space-y-1 max-h-40 overflow-y-auto">
+                        <div class="text-zinc-400 text-xs uppercase mb-2">Send to which bandleader(s)?</div>
+                        <div id="referralIndividualsList" class="space-y-1 max-h-48 overflow-y-auto">
                             <p class="text-zinc-500 text-sm">Loading roster...</p>
                         </div>
                     </div>
@@ -2478,28 +2472,6 @@
                 if (prefill.headcount) document.getElementById('refHeadcount').value = prefill.headcount;
                 if (prefill.budget) document.getElementById('refBudget').value = prefill.budget;
                 if (prefill.moreInfo) document.getElementById('refMoreInfo').value = prefill.moreInfo;
-            }
-
-            try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRosterGroups');
-                const data = await response.json();
-                const groupsEl = document.getElementById('referralGroupsList');
-                if (!groupsEl) return;
-
-                if (data.success && data.groups.length > 0) {
-                    groupsEl.innerHTML = data.groups.map(g => `
-                        <label class="flex items-center gap-2 text-zinc-300 text-sm">
-                            <input type="checkbox" class="referral-group-checkbox" value="${escapeHtml(g)}" />
-                            ${escapeHtml(g)}
-                        </label>
-                    `).join('');
-                } else {
-                    groupsEl.innerHTML = '<p class="text-zinc-500 text-sm">No groups found - add a "Whatsapp Group" column to the roster sheet first.</p>';
-                }
-            } catch (err) {
-                console.error('Roster groups load error:', err);
-                const groupsEl = document.getElementById('referralGroupsList');
-                if (groupsEl) groupsEl.innerHTML = '<p class="text-red-500 text-sm">Couldn\'t load groups.</p>';
             }
 
             try {
@@ -2531,11 +2503,10 @@
         };
 
         window.submitReferral = async function() {
-            const groups = Array.from(document.querySelectorAll('.referral-group-checkbox:checked')).map(cb => cb.value);
             const individualPhones = Array.from(document.querySelectorAll('.referral-individual-checkbox:checked')).map(cb => cb.value);
 
-            if (groups.length === 0 && individualPhones.length === 0) {
-                alert('Select at least one group or bandleader to send to.');
+            if (individualPhones.length === 0) {
+                alert('Select at least one bandleader to send to.');
                 return;
             }
 
@@ -2558,7 +2529,6 @@
                     body: JSON.stringify({
                         action: 'createReferral',
                         details: details,
-                        groups: groups,
                         individualPhones: individualPhones
                     })
                 });
