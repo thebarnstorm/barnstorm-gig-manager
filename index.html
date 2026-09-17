@@ -2608,6 +2608,7 @@
                             : '';
                         const preview = c.last.direction === 'outbound' ? 'You: ' + (c.last.body || '') : (c.last.body || '');
                         const nameElId = 'convName-' + c.number.replace(/[^a-zA-Z0-9]/g, '_');
+                        const bodyElId = 'convBody-' + c.number.replace(/[^a-zA-Z0-9]/g, '_');
                         const unreadCount = c.messages.filter(m => m.direction !== 'outbound' && m.read === false).length;
                         const isUnread = unreadCount > 0;
                         return `
@@ -2621,12 +2622,15 @@
                                         ${isUnread ? `<span class="inline-block w-2 h-2 rounded-full ${colors.dot} mr-1 align-middle"></span>` : ''}
                                         ${channel === 'whatsapp'
                                             ? `<span id="${nameElId}">${escapeHtml(c.number)}</span>`
-                                            : `${escapeHtml(c.number)}<span id="${nameElId}" class="text-zinc-400 font-normal"></span>`
+                                            : ''
                                         }
                                     </span>
                                     ${isUnread ? `<span class="${colors.text} text-xs font-bold uppercase shrink-0">${unreadCount} new</span>` : ''}
                                 </div>
-                                <p class="text-zinc-400 text-sm mb-1 break-words truncate">${escapeHtml(preview)}</p>
+                                ${channel === 'sms'
+                                    ? `<div id="${bodyElId}"><p class="text-white font-bold text-sm break-all">${escapeHtml(c.number)}</p></div>`
+                                    : `<p class="text-zinc-400 text-sm mb-1 break-words truncate">${escapeHtml(preview)}</p>`
+                                }
                                 <span class="text-zinc-600 text-xs">${escapeHtml(when)}</span>
                             </button>
                         `;
@@ -2639,7 +2643,7 @@
                 ` : ''}
             `;
 
-            // For SMS (leads), fill in each contact's name from Insightly once it loads
+            // For SMS (leads), replace the number with Name / Date / Venue / City-State once it loads
             if (channel === 'sms') {
                 loadInsightlyNamesForList(visibleConversations.map(c => c.number));
             }
@@ -2700,10 +2704,15 @@
 
                 numbers.forEach(number => {
                     const result = data.results[number];
-                    if (!result || !result.found) return;
-                    const elId = 'convName-' + number.replace(/[^a-zA-Z0-9]/g, '_');
-                    const el = document.getElementById(elId);
-                    if (el) el.textContent = ' \u00b7 ' + result.name;
+                    const bodyElId = 'convBody-' + number.replace(/[^a-zA-Z0-9]/g, '_');
+                    const el = document.getElementById(bodyElId);
+                    if (!el || !result || !result.found) return; // leave the number showing if no match
+
+                    const details = [result.eventDate, result.venue, result.cityState].filter(Boolean).join(' \u00b7 ');
+                    el.innerHTML = `
+                        <p class="text-white font-bold text-sm break-words">${escapeHtml(result.name)}</p>
+                        ${details ? `<p class="text-zinc-400 text-sm break-words">${escapeHtml(details)}</p>` : ''}
+                    `;
                 });
             } catch (err) {
                 console.error('Insightly batch name lookup error:', err);
