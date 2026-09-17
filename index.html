@@ -2619,8 +2619,10 @@
                                 <div class="flex justify-between items-start mb-1 gap-2">
                                     <span class="text-white font-bold text-sm break-all">
                                         ${isUnread ? `<span class="inline-block w-2 h-2 rounded-full ${colors.dot} mr-1 align-middle"></span>` : ''}
-                                        ${escapeHtml(c.number)}
-                                        ${channel === 'sms' ? `<span id="${nameElId}" class="text-zinc-400 font-normal"></span>` : ''}
+                                        ${channel === 'whatsapp'
+                                            ? `<span id="${nameElId}">${escapeHtml(c.number)}</span>`
+                                            : `${escapeHtml(c.number)}<span id="${nameElId}" class="text-zinc-400 font-normal"></span>`
+                                        }
                                     </span>
                                     ${isUnread ? `<span class="${colors.text} text-xs font-bold uppercase shrink-0">${unreadCount} new</span>` : ''}
                                 </div>
@@ -2641,6 +2643,10 @@
             if (channel === 'sms') {
                 visibleConversations.forEach(c => loadInsightlyNameForList(c.number));
             }
+            // For WhatsApp (bandleaders), swap the number for their name from the roster
+            if (channel === 'whatsapp') {
+                loadRosterNamesForList(visibleConversations);
+            }
         }
 
         window.showMoreConversations = function(channel) {
@@ -2651,6 +2657,39 @@
             }
             renderChannelColumn(channel);
         };
+
+        let bandleaderRosterCache = null;
+
+        async function getBandleaderRosterCache() {
+            if (bandleaderRosterCache) return bandleaderRosterCache;
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRoster');
+                const data = await response.json();
+                if (data.success) {
+                    bandleaderRosterCache = data.roster;
+                }
+            } catch (err) {
+                console.error('Roster cache load error:', err);
+            }
+            return bandleaderRosterCache || [];
+        }
+
+        async function loadRosterNamesForList(conversations) {
+            const roster = await getBandleaderRosterCache();
+            if (!roster.length) return;
+
+            conversations.forEach(c => {
+                const target = c.number.replace(/\D/g, '').slice(-10);
+                const match = roster.find(r => r.phone.replace(/\D/g, '').slice(-10) === target);
+                if (!match) return;
+
+                const sanitized = c.number.replace(/[^a-zA-Z0-9]/g, '_');
+                ['convName-' + sanitized, 'threadTitle-' + sanitized].forEach(elId => {
+                    const el = document.getElementById(elId);
+                    if (el) el.textContent = match.name;
+                });
+            });
+        }
 
         async function loadInsightlyNameForList(number) {
             const elId = 'convName-' + number.replace(/[^a-zA-Z0-9]/g, '_');
@@ -2669,11 +2708,12 @@
         function renderConversationThread(container, number, channel) {
             const thread = allMessages.filter(m => (m.channel || 'sms') === channel && contactNumberFor(m) === number);
             const colors = channelColors(channel);
+            const threadTitleElId = 'threadTitle-' + number.replace(/[^a-zA-Z0-9]/g, '_');
 
             container.innerHTML = `
                 <div>
                     <button onclick="window.backToConversationList('${channel}')" class="${colors.text} hover:text-white text-sm mb-4">&larr; All ${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} conversations</button>
-                    <h3 class="text-white font-bold mb-2 break-all">${escapeHtml(number)}</h3>
+                    <h3 id="${threadTitleElId}" class="text-white font-bold mb-2 break-all">${escapeHtml(number)}</h3>
                     ${channel === 'sms' ? `<div id="insightlyInfo-${escapeHtml(number).replace(/[^a-zA-Z0-9]/g, '_')}" class="mb-4 text-sm text-zinc-500">Looking up contact...</div>` : ''}
                     <div class="space-y-2 mb-4 max-h-[50vh] overflow-y-auto" role="list" aria-label="Message thread">
                         ${thread.map(m => {
@@ -2716,6 +2756,10 @@
             // SMS conversations are leads - look up their Insightly contact info
             if (channel === 'sms') {
                 loadInsightlyInfo(number);
+            }
+            // WhatsApp conversations are bandleaders - show their name from the roster
+            if (channel === 'whatsapp') {
+                loadRosterNamesForList([{ number: number }]);
             }
         }
 
