@@ -2641,7 +2641,7 @@
 
             // For SMS (leads), fill in each contact's name from Insightly once it loads
             if (channel === 'sms') {
-                visibleConversations.forEach(c => loadInsightlyNameForList(c.number));
+                loadInsightlyNamesForList(visibleConversations.map(c => c.number));
             }
             // For WhatsApp (bandleaders), swap the number for their name from the roster
             if (channel === 'whatsapp') {
@@ -2691,17 +2691,22 @@
             });
         }
 
-        async function loadInsightlyNameForList(number) {
-            const elId = 'convName-' + number.replace(/[^a-zA-Z0-9]/g, '_');
+        async function loadInsightlyNamesForList(numbers) {
+            if (numbers.length === 0) return;
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContact&phone=' + encodeURIComponent(number));
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactsBatch&phones=' + encodeURIComponent(numbers.join(',')));
                 const data = await response.json();
-                const el = document.getElementById(elId);
-                if (el && data.found) {
-                    el.textContent = ' \u00b7 ' + data.name;
-                }
+                if (!data.success) return;
+
+                numbers.forEach(number => {
+                    const result = data.results[number];
+                    if (!result || !result.found) return;
+                    const elId = 'convName-' + number.replace(/[^a-zA-Z0-9]/g, '_');
+                    const el = document.getElementById(elId);
+                    if (el) el.textContent = ' \u00b7 ' + result.name;
+                });
             } catch (err) {
-                console.error('Insightly name lookup error:', err);
+                console.error('Insightly batch name lookup error:', err);
             }
         }
 
