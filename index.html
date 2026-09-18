@@ -2336,13 +2336,16 @@
             if (!container) return; // user navigated away before this fired
 
             container.innerHTML = `
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div>
                         <h3 class="text-white font-bold uppercase text-sm mb-3 tracking-wide flex items-center gap-2">
                             <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span> SMS &middot; Leads
                         </h3>
-                        <div id="referralsList" class="mb-4"></div>
                         <div id="smsColumn"></div>
+                    </div>
+                    <div>
+                        <h3 class="text-white font-bold uppercase text-sm mb-3 tracking-wide">Referrals</h3>
+                        <div id="referralsList"></div>
                     </div>
                     <div>
                         <h3 class="text-white font-bold uppercase text-sm mb-3 tracking-wide flex items-center gap-2">
@@ -2400,7 +2403,7 @@
                         const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
                         const refElId = 'referral-' + ref.id;
                         return `
-                            <details class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem">
+                            <details class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
                                 <summary class="cursor-pointer text-white text-sm font-bold">
                                     ${escapeHtml(summary || 'Referral')}
                                     <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded${acceptedCount > 0 ? `, ${acceptedCount} accepted` : ''}</span>
@@ -2409,6 +2412,7 @@
                                     <span>${escapeHtml(when)}</span>
                                     <button onclick="window.deleteReferral('${ref.id}')" class="text-red-400 hover:text-red-300 uppercase text-xs font-bold">Clear</button>
                                 </div>
+                                <div id="referralLeadInfo-${ref.id}" class="mt-2"></div>
                                 <div class="mt-2 space-y-1">
                                     ${recipients.map(r => {
                                         const statusColor = r.status === 'accepted' ? 'text-green-400'
@@ -2435,6 +2439,34 @@
                 </div>
             `;
         }
+
+        window.onReferralToggle = async function(detailsEl, referralId, leadId) {
+            if (!detailsEl.open) return; // only load the first time it's opened, not on close
+
+            const elId = 'referralLeadInfo-' + referralId;
+            const el = document.getElementById(elId);
+            if (!el || el.dataset.loaded === 'true') return;
+
+            if (!leadId) {
+                el.innerHTML = '<span class="text-zinc-600 text-sm">No linked Insightly lead for this referral.</span>';
+                el.dataset.loaded = 'true';
+                return;
+            }
+
+            el.innerHTML = '<span class="text-zinc-500 text-sm">Looking up lead info...</span>';
+            try {
+                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactById&leadId=' + encodeURIComponent(leadId));
+                const data = await response.json();
+                const freshEl = document.getElementById(elId);
+                if (!freshEl) return;
+                freshEl.innerHTML = buildLeadInfoCardHtml(data);
+                freshEl.dataset.loaded = 'true';
+            } catch (err) {
+                console.error('Referral lead info lookup error:', err);
+                const freshEl = document.getElementById(elId);
+                if (freshEl) freshEl.innerHTML = '<span class="text-zinc-600 text-sm">Couldn\'t load lead info.</span>';
+            }
+        };
 
         let currentReferralLeadId = '';
 
@@ -2779,6 +2811,62 @@
 
         let insightlyDataByNumber = {};
 
+        // Shared builder: same lead-info card layout used in both the
+        // SMS thread view and the expanded Referral card.
+        function buildLeadInfoCardHtml(data, options) {
+            options = options || {};
+            if (!data.found) {
+                return '<span class="text-zinc-600">No matching Insightly lead found.</span>';
+            }
+
+            const contactFields = [
+                ['Email', data.email],
+                ['Mobile', data.mobile],
+                ['Lead Origin', data.leadOrigin]
+            ].filter(([label, value]) => value);
+
+            const eventFields = [
+                ['Event Date', data.eventDate],
+                ['Event Type', data.eventType],
+                ['Venue', data.venue],
+                ['City/State', data.cityState],
+                ['Headcount', data.headcountRange],
+                ['Budget', data.budget]
+            ].filter(([label, value]) => value);
+
+            const coupleInfo = [data.description, data.otherInfo].filter(Boolean).join('\n\n');
+
+            const fieldBlock = (label, value) => `
+                <div>
+                    <span class="text-zinc-500 text-xs uppercase block">${escapeHtml(label)}</span>
+                    <span class="text-zinc-300 text-sm break-words">${escapeHtml(value)}</span>
+                </div>
+            `;
+
+            return `
+                <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
+                    <div class="flex justify-between items-start gap-2">
+                        <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                        ${options.referButton ? `<button onclick="window.openReferralFromLead('${options.referButton.replace(/'/g, "\\'")}')" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded shrink-0">Refer This Lead</button>` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 gap-x-4 gap-y-3 mt-2">
+                        <div class="space-y-2">
+                            ${contactFields.map(([label, value]) => fieldBlock(label, value)).join('')}
+                        </div>
+                        <div class="space-y-2">
+                            ${eventFields.map(([label, value]) => fieldBlock(label, value)).join('')}
+                        </div>
+                    </div>
+                    ${coupleInfo ? `
+                        <div class="mt-3 pt-3 border-t border-zinc-800">
+                            <span class="text-zinc-500 text-xs uppercase block mb-1">From the couple</span>
+                            <p class="text-zinc-300 text-sm whitespace-pre-line break-words">${escapeHtml(coupleInfo)}</p>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
         async function loadInsightlyInfo(number) {
             const elId = 'insightlyInfo-' + number.replace(/[^a-zA-Z0-9]/g, '_');
             const el = document.getElementById(elId);
@@ -2794,56 +2882,8 @@
 
                 if (data.found) {
                     insightlyDataByNumber[number] = data;
-
-                    const contactFields = [
-                        ['Email', data.email],
-                        ['Mobile', data.mobile],
-                        ['Lead Origin', data.leadOrigin]
-                    ].filter(([label, value]) => value);
-
-                    const eventFields = [
-                        ['Event Date', data.eventDate],
-                        ['Event Type', data.eventType],
-                        ['Venue', data.venue],
-                        ['City/State', data.cityState],
-                        ['Headcount', data.headcountRange],
-                        ['Budget', data.budget]
-                    ].filter(([label, value]) => value);
-
-                    const coupleInfo = [data.description, data.otherInfo].filter(Boolean).join('\n\n');
-
-                    const fieldBlock = (label, value) => `
-                        <div>
-                            <span class="text-zinc-500 text-xs uppercase block">${escapeHtml(label)}</span>
-                            <span class="text-zinc-300 text-sm break-words">${escapeHtml(value)}</span>
-                        </div>
-                    `;
-
-                    freshEl.innerHTML = `
-                        <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
-                            <div class="flex justify-between items-start gap-2">
-                                <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
-                                <button onclick="window.openReferralFromLead('${escapeHtml(number).replace(/'/g, "\\'")}')" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded shrink-0">Refer This Lead</button>
-                            </div>
-                            <div class="grid grid-cols-2 gap-x-4 gap-y-3 mt-2">
-                                <div class="space-y-2">
-                                    ${contactFields.map(([label, value]) => fieldBlock(label, value)).join('')}
-                                </div>
-                                <div class="space-y-2">
-                                    ${eventFields.map(([label, value]) => fieldBlock(label, value)).join('')}
-                                </div>
-                            </div>
-                            ${coupleInfo ? `
-                                <div class="mt-3 pt-3 border-t border-zinc-800">
-                                    <span class="text-zinc-500 text-xs uppercase block mb-1">From the couple</span>
-                                    <p class="text-zinc-300 text-sm whitespace-pre-line break-words">${escapeHtml(coupleInfo)}</p>
-                                </div>
-                            ` : ''}
-                        </div>
-                    `;
-                } else {
-                    freshEl.innerHTML = '<span class="text-zinc-600">No matching Insightly lead found.</span>';
                 }
+                freshEl.innerHTML = buildLeadInfoCardHtml(data, { referButton: number });
             } catch (err) {
                 console.error('Insightly lookup error:', err);
                 const freshEl = document.getElementById(elId);
