@@ -2896,7 +2896,7 @@
                     <div class="flex justify-between items-start gap-2">
                         <div class="flex items-baseline gap-2 flex-wrap">
                             <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
-                            ${coupleFirstNames ? `<span class="text-zinc-500 text-sm">${escapeHtml(coupleFirstNames)}</span>` : ''}
+                            ${coupleFirstNames ? `<span class="text-zinc-500 text-sm">(${escapeHtml(coupleFirstNames)})</span>` : ''}
                         </div>
                         ${options.referButton ? `<button onclick="window.openReferralFromLead('${options.referButton.replace(/'/g, "\\'")}')" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded shrink-0">Refer This Lead</button>` : ''}
                     </div>
