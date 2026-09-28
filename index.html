@@ -2868,8 +2868,6 @@
             }
 
             const allFields = [
-                ['Bride', data.brideName],
-                ['Groom', data.groomName],
                 ['Email', data.email],
                 ['Mobile', data.mobile],
                 ['Lead Origin', data.leadOrigin],
@@ -2880,6 +2878,9 @@
                 ['Headcount', data.headcountRange],
                 ['Budget', data.budget]
             ].filter(([label, value]) => value);
+
+            const firstName = (fullName) => (fullName || '').trim().split(/\s+/)[0] || '';
+            const coupleFirstNames = [firstName(data.brideName), firstName(data.groomName)].filter(Boolean).join(' & ');
 
             const coupleInfo = [data.description, data.otherInfo].filter(Boolean).join('\n\n');
 
@@ -2893,7 +2894,10 @@
             return `
                 <div class="bg-zinc-900 border border-zinc-800 rounded p-3">
                     <div class="flex justify-between items-start gap-2">
-                        <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                        <div class="flex items-baseline gap-2 flex-wrap">
+                            <a href="${escapeHtml(data.insightlyUrl)}" target="_blank" rel="noopener" class="text-blue-400 hover:underline font-bold">${escapeHtml(data.name)}</a>
+                            ${coupleFirstNames ? `<span class="text-zinc-500 text-sm">${escapeHtml(coupleFirstNames)}</span>` : ''}
+                        </div>
                         ${options.referButton ? `<button onclick="window.openReferralFromLead('${options.referButton.replace(/'/g, "\\'")}')" class="bg-white text-black font-bold uppercase text-xs px-3 py-1.5 rounded shrink-0">Refer This Lead</button>` : ''}
                     </div>
                     <div class="grid grid-cols-2 gap-x-4 gap-y-3 mt-3">
