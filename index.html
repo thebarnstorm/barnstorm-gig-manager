@@ -2382,9 +2382,17 @@
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                        <h3 class="text-white font-bold uppercase text-sm mb-3 tracking-wide flex items-center gap-2">
-                            <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span> SMS &middot; Leads
-                        </h3>
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-white font-bold uppercase text-sm tracking-wide flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shrink-0"></span> SMS &middot; Leads
+                            </h3>
+                            <button
+                                onclick="window.addManualLead()"
+                                class="bg-white text-black font-bold uppercase text-xs px-3 py-1 rounded"
+                            >
+                                + Add Lead
+                            </button>
+                        </div>
                         <div id="smsColumn"></div>
                     </div>
                     <div>
@@ -2400,6 +2408,43 @@
             renderChannelColumn('whatsapp');
             renderReferralsList();
         }
+
+        // Adds a lead to the SMS list without sending any text.
+        // Saves an empty placeholder entry via Apps Script (action: 'addLead').
+        window.addManualLead = async function() {
+            const raw = prompt('Lead phone number (e.g. 917-555-1234):');
+            if (!raw) return;
+
+            // Turn whatever was typed into +1XXXXXXXXXX format
+            const digits = raw.replace(/\D/g, '');
+            let number = '';
+            if (raw.trim().startsWith('+') && digits.length >= 8) {
+                number = '+' + digits;
+            } else if (digits.length === 10) {
+                number = '+1' + digits;
+            } else if (digits.length === 11 && digits.startsWith('1')) {
+                number = '+' + digits;
+            } else {
+                alert('That phone number does not look right. Please enter a 10-digit US number.');
+                return;
+            }
+
+            try {
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'addLead',
+                        to: number
+                    })
+                });
+                alert('Lead ' + number + ' added. It should appear in the list in a few seconds.');
+            } catch (err) {
+                console.error('Add lead error:', err);
+                alert('There was a problem adding that lead. Please try again.');
+            }
+        };
 
         window.deleteReferral = async function(referralId) {
             if (!confirm('Clear this referral? This removes it and its response tracking - it cannot be undone.')) return;
@@ -2800,7 +2845,8 @@
         }
 
         function renderConversationThread(container, number, channel) {
-            const thread = allMessages.filter(m => (m.channel || 'sms') === channel && contactNumberFor(m) === number);
+            // Skip empty placeholder entries (created by "Add Lead") so no blank bubble shows
+            const thread = allMessages.filter(m => (m.channel || 'sms') === channel && contactNumberFor(m) === number && (m.body || '').trim() !== '');
             const colors = channelColors(channel);
             const threadTitleElId = 'threadTitle-' + number.replace(/[^a-zA-Z0-9]/g, '_');
 
