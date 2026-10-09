@@ -38,17 +38,20 @@ messaging.onBackgroundMessage((payload) => {
 });
 
 // When a user taps a notification, bring them to the app
+// (and to a specific tab if the push says so, e.g. data.view = 'messages')
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
+    const view = (event.notification.data && event.notification.data.view) || '';
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
             for (const client of clientList) {
                 if (client.url.includes('barnstorm-gig-manager') && 'focus' in client) {
+                    if (view) client.postMessage({ type: 'openView', view: view });
                     return client.focus();
                 }
             }
             if (clients.openWindow) {
-                return clients.openWindow('/barnstorm-gig-manager/');
+                return clients.openWindow('/barnstorm-gig-manager/' + (view ? '?view=' + encodeURIComponent(view) : ''));
             }
         })
     );

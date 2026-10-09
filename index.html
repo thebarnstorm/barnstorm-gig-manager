@@ -297,6 +297,8 @@
                 loadGigsFromSheet();
                 console.log('About to call showMainApp()');
                 showMainApp();
+                setupForegroundPush();
+                applyDeepLink();
                 console.log('=== AUTH STATE PROCESSING COMPLETE ===');
             } else {
                 console.log('No user logged in');
@@ -3689,6 +3691,71 @@
                 console.error('Error checking notification support:', e);
                 return 'unsupported';
             }
+        }
+
+        // --- Foreground push alerts + tap-to-open links ---
+        // When the app is open, the service worker does not show pushes,
+        // so we show a small pop-up inside the app instead.
+        let foregroundPushReady = false;
+
+        function showInAppToast(title, body, onTap) {
+            const old = document.getElementById('inAppToast');
+            if (old) old.remove();
+            const toast = document.createElement('div');
+            toast.id = 'inAppToast';
+            toast.setAttribute('role', 'alert');
+            toast.className = 'fixed top-4 left-4 right-4 md:left-auto md:w-96 z-[100] bg-zinc-900 border border-zinc-600 rounded p-4 shadow-lg cursor-pointer';
+            const t = document.createElement('p');
+            t.className = 'text-white font-bold text-sm uppercase';
+            t.textContent = title;
+            const b = document.createElement('p');
+            b.className = 'text-zinc-300 text-sm mt-1';
+            b.textContent = body;
+            toast.appendChild(t);
+            toast.appendChild(b);
+            toast.onclick = () => { toast.remove(); if (onTap) onTap(); };
+            document.body.appendChild(toast);
+            setTimeout(() => { if (toast.parentNode) toast.remove(); }, 8000);
+        }
+
+        async function setupForegroundPush() {
+            if (foregroundPushReady) return;
+            try {
+                if (!('Notification' in window) || Notification.permission !== 'granted') return;
+                if (!(await isSupported())) return;
+                onMessage(getMessaging(app), (payload) => {
+                    const d = payload.data || {};
+                    // Already looking at Messages: the list updates live, no pop-up needed
+                    if (d.view === 'messages' && currentView === 'messages') return;
+                    showInAppToast(d.title || 'The Barnstorm', d.body || '', () => {
+                        if (d.view) window.switchView(d.view);
+                    });
+                });
+                foregroundPushReady = true;
+            } catch (e) {
+                console.error('Foreground push setup failed:', e);
+            }
+        }
+
+        // Opens a tab if the app was launched from a notification tap (?view=messages)
+        function applyDeepLink() {
+            try {
+                const view = new URLSearchParams(window.location.search).get('view');
+                if (view === 'messages') {
+                    window.switchView('messages');
+                    history.replaceState(null, '', window.location.pathname);
+                }
+            } catch (e) {
+                console.error('Deep link failed:', e);
+            }
+        }
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data && event.data.type === 'openView' && currentUser) {
+                    window.switchView(event.data.view);
+                }
+            });
         }
 
         window.enablePushNotifications = async function() {
