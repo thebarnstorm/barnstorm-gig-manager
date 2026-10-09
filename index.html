@@ -3728,7 +3728,7 @@
                     // Already looking at Messages: the list updates live, no pop-up needed
                     if (d.view === 'messages' && currentView === 'messages') return;
                     showInAppToast(d.title || 'The Barnstorm', d.body || '', () => {
-                        if (d.view) window.switchView(d.view);
+                        openFromNotification(d);
                     });
                 });
                 foregroundPushReady = true;
@@ -3737,12 +3737,45 @@
             }
         }
 
-        // Opens a tab if the app was launched from a notification tap (?view=messages)
+        // Opens the right tab (and conversation) for a tapped notification
+        function openFromNotification(d) {
+            if (!d || !d.view) return;
+            window.switchView(d.view);
+            if (d.view === 'messages' && d.phone) {
+                openConversationWhenReady(d.phone, d.channel === 'whatsapp' ? 'whatsapp' : 'sms');
+            }
+        }
+
+        // The Messages list loads a moment after the tab opens, so wait for it,
+        // match the number (last 10 digits, ignoring formatting), then open the thread.
+        function openConversationWhenReady(phone, channel) {
+            const digits = (n) => (n || '').toString().replace(/\D/g, '').slice(-10);
+            const target = digits(phone);
+            if (!target) return;
+            let tries = 0;
+            const timer = setInterval(() => {
+                tries++;
+                const container = document.getElementById(channel === 'whatsapp' ? 'whatsappColumn' : 'smsColumn');
+                const match = container
+                    ? allMessages.find(m => (m.channel || 'sms') === channel && digits(contactNumberFor(m)) === target)
+                    : null;
+                if (match) {
+                    clearInterval(timer);
+                    window.openConversation(contactNumberFor(match), channel);
+                    container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } else if (tries >= 40) {
+                    clearInterval(timer); // give up after about 10 seconds, leave them on the list
+                }
+            }, 250);
+        }
+
+        // Handles the app being launched from a notification tap (?view=messages&phone=...)
         function applyDeepLink() {
             try {
-                const view = new URLSearchParams(window.location.search).get('view');
+                const params = new URLSearchParams(window.location.search);
+                const view = params.get('view');
                 if (view === 'messages') {
-                    window.switchView('messages');
+                    openFromNotification({ view: view, phone: params.get('phone'), channel: params.get('channel') });
                     history.replaceState(null, '', window.location.pathname);
                 }
             } catch (e) {
@@ -3753,7 +3786,7 @@
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('message', (event) => {
                 if (event.data && event.data.type === 'openView' && currentUser) {
-                    window.switchView(event.data.view);
+                    openFromNotification(event.data);
                 }
             });
         }

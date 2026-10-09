@@ -38,20 +38,29 @@ messaging.onBackgroundMessage((payload) => {
 });
 
 // When a user taps a notification, bring them to the app
-// (and to a specific tab if the push says so, e.g. data.view = 'messages')
+// (and to a specific tab/conversation if the push says so, e.g.
+// data.view = 'messages', data.phone = '+15551234567', data.channel = 'sms')
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    const view = (event.notification.data && event.notification.data.view) || '';
+    const d = event.notification.data || {};
+    const view = d.view || '';
     event.waitUntil(
         clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
             for (const client of clientList) {
                 if (client.url.includes('barnstorm-gig-manager') && 'focus' in client) {
-                    if (view) client.postMessage({ type: 'openView', view: view });
+                    if (view) client.postMessage({ type: 'openView', view: view, phone: d.phone || '', channel: d.channel || '' });
                     return client.focus();
                 }
             }
             if (clients.openWindow) {
-                return clients.openWindow('/barnstorm-gig-manager/' + (view ? '?view=' + encodeURIComponent(view) : ''));
+                let url = '/barnstorm-gig-manager/';
+                if (view) {
+                    const q = new URLSearchParams({ view: view });
+                    if (d.phone) q.set('phone', d.phone);
+                    if (d.channel) q.set('channel', d.channel);
+                    url += '?' + q.toString();
+                }
+                return clients.openWindow(url);
             }
         })
     );
