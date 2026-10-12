@@ -2311,7 +2311,34 @@
         let referralsUnsubscribe = null;
         let referralRecipientsUnsubscribe = null;
 
+        // ---- Lookup cache: remember Insightly results so screens don't re-fetch them ----
+        // Found leads are remembered for 10 minutes, "not found" for 2 minutes
+        // (so a newly added lead gets picked up quickly).
+        const INSIGHTLY_FOUND_TTL_MS = 10 * 60 * 1000;
+        const INSIGHTLY_MISS_TTL_MS = 2 * 60 * 1000;
+        const insightlyListCache = {};    // phone number -> short info shown in the list
+        const insightlyThreadCache = {};  // phone number -> full info shown in a conversation
+        const referralLeadCache = {};     // Insightly lead ID -> full info shown in a referral
+
+        function cacheGet(cache, key) {
+            const entry = cache[key];
+            if (!entry) return null;
+            const ttl = (entry.value && entry.value.found) ? INSIGHTLY_FOUND_TTL_MS : INSIGHTLY_MISS_TTL_MS;
+            return (Date.now() - entry.at < ttl) ? entry.value : null;
+        }
+
+        function cacheSet(cache, key, value) {
+            cache[key] = { value: value, at: Date.now() };
+        }
+
+        // Remember what was last drawn so we only redraw when something really changed
+        let lastMessagesSignature = '';
+        let lastReferralsSignature = '';
+        const openReferralIds = new Set(); // referral cards the user has expanded
+
         function showMessagesView() {
+            lastMessagesSignature = '';
+            lastReferralsSignature = '';
             selectedSmsConversation = null;
             selectedWhatsappConversation = null;
             smsListLimit = 10;
@@ -2337,7 +2364,11 @@
                 query(collection(db, 'messages'), orderBy('timestamp', 'asc')),
                 (snapshot) => {
                     allMessages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    renderMessagesContainer();
+                    // Skip the redraw if nothing visible changed
+                    const signature = allMessages.map(m => m.id + ':' + (m.read === false ? 0 : 1) + ':' + (m.body || '').length).join('|');
+                    if (signature === lastMessagesSignature && document.getElementById('smsColumn')) return;
+                    lastMessagesSignature = signature;
+                    refreshMessagesView();
                 },
                 (error) => {
                     console.error('Messages listener error:', error);
@@ -2371,6 +2402,20 @@
         // regardless of whether it was inbound or outbound.
         function contactNumberFor(message) {
             return message.direction === 'outbound' ? message.to : message.from;
+        }
+
+        // Draws the page frame once. After that, only the lists inside it are refreshed,
+        // so the headings, buttons and referrals don't flash or jump.
+        function refreshMessagesView() {
+            const container = document.getElementById('messagesContainer');
+            if (!container) return; // user navigated away before this fired
+
+            if (!document.getElementById('smsColumn')) {
+                renderMessagesContainer();
+                return;
+            }
+            renderChannelColumn('sms');
+            renderChannelColumn('whatsapp');
         }
 
         function renderMessagesContainer() {
@@ -2408,6 +2453,7 @@
 
             renderChannelColumn('sms');
             renderChannelColumn('whatsapp');
+            lastReferralsSignature = ''; // the frame was just rebuilt, so redraw referrals
             renderReferralsList();
         }
 
@@ -2473,6 +2519,14 @@
             const container = document.getElementById('referralsList');
             if (!container) return; // not on the Messages view right now
 
+            // Skip the redraw if nothing visible changed
+            const signature = JSON.stringify([
+                allReferrals.map(r => [r.id, r.eventType, r.date, r.venue]),
+                allReferralRecipients.map(r => [r.id, r.referralId, r.status, r.responseText])
+            ]);
+            if (signature === lastReferralsSignature) return;
+            lastReferralsSignature = signature;
+
             if (allReferrals.length === 0) {
                 container.innerHTML = '';
                 return;
@@ -2490,7 +2544,7 @@
                         const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
                         const refElId = 'referral-' + ref.id;
                         return `
-                            <details class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
+                            <details ${openReferralIds.has(ref.id) ? 'open' : ''} class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
                                 <summary class="cursor-pointer text-white text-sm font-bold">
                                     ${escapeHtml(summary || 'Referral')}
                                     <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded${acceptedCount > 0 ? `, ${acceptedCount} accepted` : ''}</span>
@@ -2536,7 +2590,11 @@
         }
 
         window.onReferralToggle = async function(detailsEl, referralId, leadId) {
-            if (!detailsEl.open) return; // only load the first time it's opened, not on close
+            if (!detailsEl.open) {
+                openReferralIds.delete(referralId);
+                return; // only load when opened, not on close
+            }
+            openReferralIds.add(referralId);
 
             const elId = 'referralLeadInfo-' + referralId;
             const el = document.getElementById(elId);
@@ -2548,10 +2606,19 @@
                 return;
             }
 
+            // Already looked up recently? Show it instantly, no new request
+            const cached = cacheGet(referralLeadCache, leadId);
+            if (cached) {
+                el.innerHTML = buildLeadInfoCardHtml(cached);
+                el.dataset.loaded = 'true';
+                return;
+            }
+
             el.innerHTML = '<span class="text-zinc-500 text-sm">Looking up lead info...</span>';
             try {
                 const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactById&leadId=' + encodeURIComponent(leadId));
                 const data = await response.json();
+                cacheSet(referralLeadCache, leadId, data);
                 const freshEl = document.getElementById(elId);
                 if (!freshEl) return;
                 freshEl.innerHTML = buildLeadInfoCardHtml(data);
@@ -2755,7 +2822,7 @@
                                     ${isUnread ? `<span class="${colors.text} text-xs font-bold uppercase shrink-0">${unreadCount} new</span>` : ''}
                                 </div>
                                 ${channel === 'sms'
-                                    ? `<div id="${bodyElId}"><p class="text-white font-bold text-sm break-all">${escapeHtml(c.number)}</p></div>`
+                                    ? `<div id="${bodyElId}">${smsListBodyHtml(c.number)}</div>`
                                     : `<p class="text-zinc-400 text-sm mb-1 break-words truncate">${escapeHtml(preview)}</p>`
                                 }
                                 <span class="text-zinc-600 text-xs">${escapeHtml(when)}</span>
@@ -2822,7 +2889,22 @@
             });
         }
 
-        async function loadInsightlyNamesForList(numbers) {
+        // What a lead row shows: name + details if we already know them, otherwise the phone number.
+        function smsListBodyHtml(number) {
+            const result = cacheGet(insightlyListCache, number);
+            if (!result || !result.found) {
+                return `<p class="text-white font-bold text-sm break-all">${escapeHtml(number)}</p>`;
+            }
+            const details = [result.eventDate, result.venue, result.cityState].filter(Boolean).join(' \u00b7 ');
+            return `
+                <p class="text-white font-bold text-sm break-words">${escapeHtml(result.name)}</p>
+                ${details ? `<p class="text-zinc-400 text-sm break-words">${escapeHtml(details)}</p>` : ''}
+            `;
+        }
+
+        async function loadInsightlyNamesForList(allNumbers) {
+            // Only look up numbers we don't already have a recent answer for
+            const numbers = allNumbers.filter(n => !cacheGet(insightlyListCache, n));
             if (numbers.length === 0) return;
             try {
                 const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactsBatch&phones=' + encodeURIComponent(numbers.join(',')));
@@ -2831,15 +2913,13 @@
 
                 numbers.forEach(number => {
                     const result = data.results[number];
+                    if (!result) return;
+                    cacheSet(insightlyListCache, number, result);
+
                     const bodyElId = 'convBody-' + number.replace(/[^a-zA-Z0-9]/g, '_');
                     const el = document.getElementById(bodyElId);
-                    if (!el || !result || !result.found) return; // leave the number showing if no match
-
-                    const details = [result.eventDate, result.venue, result.cityState].filter(Boolean).join(' \u00b7 ');
-                    el.innerHTML = `
-                        <p class="text-white font-bold text-sm break-words">${escapeHtml(result.name)}</p>
-                        ${details ? `<p class="text-zinc-400 text-sm break-words">${escapeHtml(details)}</p>` : ''}
-                    `;
+                    if (!el || !result.found) return; // leave the number showing if no match
+                    el.innerHTML = smsListBodyHtml(number);
                 });
             } catch (err) {
                 console.error('Insightly batch name lookup error:', err);
@@ -2852,11 +2932,18 @@
             const colors = channelColors(channel);
             const threadTitleElId = 'threadTitle-' + number.replace(/[^a-zA-Z0-9]/g, '_');
 
+            // Keep a half-typed reply (and cursor focus) if the thread redraws mid-typing
+            const oldInput = document.getElementById('replyInput-' + channel);
+            const savedReply = oldInput ? oldInput.value : '';
+            const hadFocus = !!oldInput && document.activeElement === oldInput;
+            const cachedLead = (channel === 'sms') ? cacheGet(insightlyThreadCache, number) : null;
+            if (cachedLead && cachedLead.found) insightlyDataByNumber[number] = cachedLead; // used by "Refer This Lead"
+
             container.innerHTML = `
                 <div>
                     <button onclick="window.backToConversationList('${channel}')" class="${colors.text} hover:text-white text-sm mb-4">&larr; All ${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} conversations</button>
                     <h3 id="${threadTitleElId}" class="text-white font-bold mb-2 break-all">${escapeHtml(number)}</h3>
-                    ${channel === 'sms' ? `<div id="insightlyInfo-${escapeHtml(number).replace(/[^a-zA-Z0-9]/g, '_')}" class="mb-4 text-sm text-zinc-500">Looking up contact...</div>` : ''}
+                    ${channel === 'sms' ? `<div id="insightlyInfo-${escapeHtml(number).replace(/[^a-zA-Z0-9]/g, '_')}" class="mb-4 text-sm text-zinc-500">${cachedLead ? buildLeadInfoCardHtml(cachedLead, { referButton: number }) : 'Looking up contact...'}</div>` : ''}
                     <div class="space-y-2 mb-4 max-h-[50vh] overflow-y-auto" role="list" aria-label="Message thread">
                         ${thread.map(m => {
                             const when = (m.timestamp && typeof m.timestamp.toDate === 'function')
@@ -2895,8 +2982,16 @@
             const threadEl = container.querySelector('[role="list"][aria-label="Message thread"]');
             if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
 
+            // Put back anything that was being typed
+            const newInput = document.getElementById('replyInput-' + channel);
+            if (newInput && savedReply) {
+                newInput.value = savedReply;
+                if (hadFocus) newInput.focus();
+            }
+
             // SMS conversations are leads - look up their Insightly contact info
-            if (channel === 'sms') {
+            // (skipped when we already have a recent answer)
+            if (channel === 'sms' && !cachedLead) {
                 loadInsightlyInfo(number);
             }
             // WhatsApp conversations are bandleaders - show their name from the roster
@@ -2977,6 +3072,7 @@
                 if (data.found) {
                     insightlyDataByNumber[number] = data;
                 }
+                cacheSet(insightlyThreadCache, number, data);
                 freshEl.innerHTML = buildLeadInfoCardHtml(data, { referButton: number });
             } catch (err) {
                 console.error('Insightly lookup error:', err);
