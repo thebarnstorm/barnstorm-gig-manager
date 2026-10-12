@@ -2544,6 +2544,8 @@
             }
         };
 
+        // Flip to true once the Apps Script backend supports archiveReferral / restoreReferral
+        const ARCHIVE_ENABLED = false;
         let archivedSectionOpen = false; // is the "Archived" box expanded?
         window.setArchivedSectionOpen = function(isOpen) { archivedSectionOpen = isOpen; };
 
@@ -2558,7 +2560,7 @@
             const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
             const moveButton = isArchived
                 ? `<button onclick="window.restoreReferral('${ref.id}')" class="text-blue-400 hover:text-blue-300 uppercase text-xs font-bold">Restore</button>`
-                : `<button onclick="window.archiveReferral('${ref.id}')" class="text-zinc-300 hover:text-white uppercase text-xs font-bold">Archive</button>`;
+                : (ARCHIVE_ENABLED ? `<button onclick="window.archiveReferral('${ref.id}')" class="text-zinc-300 hover:text-white uppercase text-xs font-bold">Archive</button>` : '');
             return `
                 <details ${openReferralIds.has(ref.id) ? 'open' : ''} class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
                     <summary class="cursor-pointer text-white text-sm font-bold">
