@@ -2544,79 +2544,133 @@
             }
         };
 
+        let archivedSectionOpen = false; // is the "Archived" box expanded?
+        window.setArchivedSectionOpen = function(isOpen) { archivedSectionOpen = isOpen; };
+
+        // Builds one referral card. Active cards get Archive + Clear; archived cards get Restore + Clear.
+        function referralCardHtml(ref, isArchived) {
+            const recipients = allReferralRecipients.filter(r => r.referralId === ref.id);
+            const respondedCount = recipients.filter(r => r.status === 'accepted' || r.status === 'declined' || r.status === 'responded').length;
+            const acceptedCount = recipients.filter(r => r.status === 'accepted').length;
+            const when = (ref.createdAt && typeof ref.createdAt.toDate === 'function')
+                ? ref.createdAt.toDate().toLocaleString()
+                : '';
+            const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
+            const moveButton = isArchived
+                ? `<button onclick="window.restoreReferral('${ref.id}')" class="text-blue-400 hover:text-blue-300 uppercase text-xs font-bold">Restore</button>`
+                : `<button onclick="window.archiveReferral('${ref.id}')" class="text-zinc-300 hover:text-white uppercase text-xs font-bold">Archive</button>`;
+            return `
+                <details ${openReferralIds.has(ref.id) ? 'open' : ''} class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
+                    <summary class="cursor-pointer text-white text-sm font-bold">
+                        ${escapeHtml(summary || 'Referral')}
+                        <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded${acceptedCount > 0 ? `, ${acceptedCount} accepted` : ''}</span>
+                    </summary>
+                    <div class="mt-2 text-zinc-500 text-xs flex justify-between items-center">
+                        <span>${escapeHtml(when)}</span>
+                        <span class="flex gap-4">
+                            ${moveButton}
+                            <button onclick="window.deleteReferral('${ref.id}')" class="text-red-400 hover:text-red-300 uppercase text-xs font-bold">Clear</button>
+                        </span>
+                    </div>
+                    <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <span class="text-zinc-500 text-xs uppercase block mb-1">Lead Info</span>
+                            <div id="referralLeadInfo-${ref.id}"></div>
+                        </div>
+                        <div>
+                            <span class="text-zinc-500 text-xs uppercase block mb-1">Sent To</span>
+                            <div class="bg-zinc-900 border border-zinc-800 rounded p-3 space-y-1.5">
+                                ${recipients.map(r => {
+                                    const statusColor = r.status === 'accepted' ? 'text-green-400'
+                                        : r.status === 'declined' ? 'text-red-400'
+                                        : r.status === 'responded' ? 'text-blue-400'
+                                        : r.status === 'failed' ? 'text-red-400'
+                                        : 'text-zinc-500';
+                                    const statusLabel = r.status === 'accepted' ? '\u2713 Accepted'
+                                        : r.status === 'declined' ? '\u2717 Declined'
+                                        : r.status === 'responded' ? escapeHtml(r.responseText || 'Responded')
+                                        : r.status === 'failed' ? 'Failed to send'
+                                        : 'Awaiting response';
+                                    return `
+                                    <div class="flex justify-between items-baseline text-sm gap-3">
+                                        <span class="text-zinc-300 truncate">${escapeHtml(r.name)}</span>
+                                        <span class="text-right shrink-0 ${statusColor}">${statusLabel}</span>
+                                    </div>
+                                `;
+                                }).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            `;
+        }
+
         function renderReferralsList() {
             const container = document.getElementById('referralsList');
             if (!container) return; // not on the Messages view right now
 
             // Skip the redraw if nothing visible changed
             const signature = JSON.stringify([
-                allReferrals.map(r => [r.id, r.eventType, r.date, r.venue]),
+                allReferrals.map(r => [r.id, r.eventType, r.date, r.venue, !!r.archived]),
                 allReferralRecipients.map(r => [r.id, r.referralId, r.status, r.responseText])
             ]);
             if (signature === lastReferralsSignature) return;
             lastReferralsSignature = signature;
 
-            if (allReferrals.length === 0) {
+            const activeReferrals = allReferrals.filter(r => !r.archived);
+            const archivedReferrals = allReferrals.filter(r => r.archived);
+
+            if (activeReferrals.length === 0 && archivedReferrals.length === 0) {
                 container.innerHTML = '';
                 return;
             }
 
             container.innerHTML = `
                 <div class="space-y-2" role="list" aria-label="Referrals sent">
-                    ${allReferrals.map(ref => {
-                        const recipients = allReferralRecipients.filter(r => r.referralId === ref.id);
-                        const respondedCount = recipients.filter(r => r.status === 'accepted' || r.status === 'declined' || r.status === 'responded').length;
-                        const acceptedCount = recipients.filter(r => r.status === 'accepted').length;
-                        const when = (ref.createdAt && typeof ref.createdAt.toDate === 'function')
-                            ? ref.createdAt.toDate().toLocaleString()
-                            : '';
-                        const summary = [ref.eventType, ref.date, ref.venue].filter(Boolean).join(' \u00b7 ');
-                        const refElId = 'referral-' + ref.id;
-                        return `
-                            <details ${openReferralIds.has(ref.id) ? 'open' : ''} class="bg-zinc-900 border border-zinc-800 rounded p-3" role="listitem" ontoggle="window.onReferralToggle(this, '${ref.id}', '${escapeHtml(ref.insightlyLeadId || '')}')">
-                                <summary class="cursor-pointer text-white text-sm font-bold">
-                                    ${escapeHtml(summary || 'Referral')}
-                                    <span class="text-zinc-500 font-normal">&middot; ${respondedCount}/${recipients.length} responded${acceptedCount > 0 ? `, ${acceptedCount} accepted` : ''}</span>
-                                </summary>
-                                <div class="mt-2 text-zinc-500 text-xs flex justify-between items-center">
-                                    <span>${escapeHtml(when)}</span>
-                                    <button onclick="window.deleteReferral('${ref.id}')" class="text-red-400 hover:text-red-300 uppercase text-xs font-bold">Clear</button>
-                                </div>
-                                <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div>
-                                        <span class="text-zinc-500 text-xs uppercase block mb-1">Lead Info</span>
-                                        <div id="referralLeadInfo-${ref.id}"></div>
-                                    </div>
-                                    <div>
-                                        <span class="text-zinc-500 text-xs uppercase block mb-1">Sent To</span>
-                                        <div class="bg-zinc-900 border border-zinc-800 rounded p-3 space-y-1.5">
-                                            ${recipients.map(r => {
-                                                const statusColor = r.status === 'accepted' ? 'text-green-400'
-                                                    : r.status === 'declined' ? 'text-red-400'
-                                                    : r.status === 'responded' ? 'text-blue-400'
-                                                    : r.status === 'failed' ? 'text-red-400'
-                                                    : 'text-zinc-500';
-                                                const statusLabel = r.status === 'accepted' ? '\u2713 Accepted'
-                                                    : r.status === 'declined' ? '\u2717 Declined'
-                                                    : r.status === 'responded' ? escapeHtml(r.responseText || 'Responded')
-                                                    : r.status === 'failed' ? 'Failed to send'
-                                                    : 'Awaiting response';
-                                                return `
-                                                <div class="flex justify-between items-baseline text-sm gap-3">
-                                                    <span class="text-zinc-300 truncate">${escapeHtml(r.name)}</span>
-                                                    <span class="text-right shrink-0 ${statusColor}">${statusLabel}</span>
-                                                </div>
-                                            `;
-                                            }).join('')}
-                                        </div>
-                                    </div>
-                                </div>
-                            </details>
-                        `;
-                    }).join('')}
+                    ${activeReferrals.map(ref => referralCardHtml(ref, false)).join('')}
                 </div>
+                ${archivedReferrals.length > 0 ? `
+                    <details ${archivedSectionOpen ? 'open' : ''} class="mt-4" ontoggle="window.setArchivedSectionOpen(this.open)">
+                        <summary class="cursor-pointer text-zinc-500 hover:text-zinc-300 text-xs font-bold uppercase tracking-wide">
+                            Archived (${archivedReferrals.length})
+                        </summary>
+                        <div class="space-y-2 mt-2" role="list" aria-label="Archived referrals">
+                            ${archivedReferrals.map(ref => referralCardHtml(ref, true)).join('')}
+                        </div>
+                    </details>
+                ` : ''}
             `;
         }
+
+        // Archive / restore are saved by the Apps Script backend (same pattern as Clear).
+        // The list updates by itself once the database reflects the change.
+        window.archiveReferral = async function(referralId) {
+            try {
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'archiveReferral', referralId: referralId })
+                });
+            } catch (err) {
+                console.error('Archive referral error:', err);
+                alert('There was a problem archiving that referral. Please try again.');
+            }
+        };
+
+        window.restoreReferral = async function(referralId) {
+            try {
+                await fetch(GOOGLE_SHEET_API_URL, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'restoreReferral', referralId: referralId })
+                });
+            } catch (err) {
+                console.error('Restore referral error:', err);
+                alert('There was a problem restoring that referral. Please try again.');
+            }
+        };
 
         window.onReferralToggle = async function(detailsEl, referralId, leadId) {
             if (!detailsEl.open) {
