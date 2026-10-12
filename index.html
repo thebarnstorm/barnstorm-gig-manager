@@ -958,6 +958,11 @@
                     referralRecipientsUnsubscribe();
                     referralRecipientsUnsubscribe = null;
                 }
+                // Forget saved lead lookups so they don't linger after logout
+                CACHE_STORAGE_KEYS.forEach((name, cache) => {
+                    Object.keys(cache).forEach(k => delete cache[k]);
+                    try { sessionStorage.removeItem(name); } catch (e) { /* ignore */ }
+                });
                 await signOut(auth);
             } catch (error) {
                 console.error('Logout error:', error);
@@ -2327,9 +2332,33 @@
             return (Date.now() - entry.at < ttl) ? entry.value : null;
         }
 
+        // Save the lookups in the browser's session storage so a page reload doesn't start from scratch.
+        // Session storage is cleared when the tab/app is closed. If the browser blocks it, the app just works without it.
+        const CACHE_STORAGE_KEYS = new Map([
+            [insightlyListCache, 'bs_insightly_list_v1'],
+            [insightlyThreadCache, 'bs_insightly_thread_v1'],
+            [referralLeadCache, 'bs_referral_lead_v1']
+        ]);
+
+        function persistCache(cache) {
+            try {
+                sessionStorage.setItem(CACHE_STORAGE_KEYS.get(cache), JSON.stringify(cache));
+            } catch (e) { /* storage unavailable or full - ignore */ }
+        }
+
+        function restoreCache(cache) {
+            try {
+                const raw = sessionStorage.getItem(CACHE_STORAGE_KEYS.get(cache));
+                if (raw) Object.assign(cache, JSON.parse(raw));
+            } catch (e) { /* unreadable - start fresh */ }
+        }
+
         function cacheSet(cache, key, value) {
             cache[key] = { value: value, at: Date.now() };
+            persistCache(cache);
         }
+
+        CACHE_STORAGE_KEYS.forEach((name, cache) => restoreCache(cache));
 
         // Remember what was last drawn so we only redraw when something really changed
         let lastMessagesSignature = '';
