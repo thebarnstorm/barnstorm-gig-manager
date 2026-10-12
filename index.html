@@ -2412,6 +2412,7 @@
                 query(collection(db, 'referrals'), orderBy('createdAt', 'desc')),
                 (snapshot) => {
                     allReferrals = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    applyArchiveOverrides();
                     renderReferralsList();
                 },
                 (error) => console.error('Referrals listener error:', error)
@@ -2549,6 +2550,32 @@
         let archivedSectionOpen = false; // is the "Archived" box expanded?
         window.setArchivedSectionOpen = function(isOpen) { archivedSectionOpen = isOpen; };
 
+        // Archive/Restore feel instant: we change the screen right away, then remember that
+        // choice until the database confirms it (or 30 seconds pass).
+        const pendingArchiveOverrides = {}; // referral ID -> { archived: true/false, at: time }
+
+        function applyArchiveOverrides() {
+            allReferrals.forEach(ref => {
+                const o = pendingArchiveOverrides[ref.id];
+                if (!o) return;
+                if (!!ref.archived === o.archived) {
+                    delete pendingArchiveOverrides[ref.id];   // database caught up
+                } else if (Date.now() - o.at < 30000) {
+                    ref.archived = o.archived;                // still waiting, keep what the user chose
+                } else {
+                    delete pendingArchiveOverrides[ref.id];   // gave up waiting; trust the database
+                }
+            });
+        }
+
+        function setReferralArchivedLocally(referralId, archived) {
+            const ref = allReferrals.find(r => r.id === referralId);
+            if (!ref) return;
+            ref.archived = archived;
+            pendingArchiveOverrides[referralId] = { archived: archived, at: Date.now() };
+            renderReferralsList();
+        }
+
         // Builds one referral card. Active cards get Archive + Clear; archived cards get Restore + Clear.
         function referralCardHtml(ref, isArchived) {
             const recipients = allReferralRecipients.filter(r => r.referralId === ref.id);
@@ -2647,6 +2674,7 @@
         // Archive / restore are saved by the Apps Script backend (same pattern as Clear).
         // The list updates by itself once the database reflects the change.
         window.archiveReferral = async function(referralId) {
+            setReferralArchivedLocally(referralId, true);
             try {
                 await fetch(GOOGLE_SHEET_API_URL, {
                     method: 'POST',
@@ -2656,11 +2684,15 @@
                 });
             } catch (err) {
                 console.error('Archive referral error:', err);
+                delete pendingArchiveOverrides[referralId];
+                setReferralArchivedLocally(referralId, false);
+                delete pendingArchiveOverrides[referralId];
                 alert('There was a problem archiving that referral. Please try again.');
             }
         };
 
         window.restoreReferral = async function(referralId) {
+            setReferralArchivedLocally(referralId, false);
             try {
                 await fetch(GOOGLE_SHEET_API_URL, {
                     method: 'POST',
@@ -2670,6 +2702,9 @@
                 });
             } catch (err) {
                 console.error('Restore referral error:', err);
+                delete pendingArchiveOverrides[referralId];
+                setReferralArchivedLocally(referralId, true);
+                delete pendingArchiveOverrides[referralId];
                 alert('There was a problem restoring that referral. Please try again.');
             }
         };
