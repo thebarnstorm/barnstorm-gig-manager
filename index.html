@@ -2914,7 +2914,19 @@
             const limit = channel === 'whatsapp' ? whatsappListLimit : smsListLimit;
             const visibleConversations = conversations.slice(0, limit);
 
+            // Total unread across ALL WhatsApp conversations (not just the visible ones)
+            const totalUnread = channel === 'whatsapp'
+                ? messages.filter(m => m.direction !== 'outbound' && m.read === false).length
+                : 0;
+
             container.innerHTML = `
+                ${totalUnread > 0 ? `
+                    <div class="flex justify-end mb-2">
+                        <button onclick="window.markAllRead('whatsapp')" class="${colors.text} hover:text-white text-xs font-bold uppercase border ${colors.border} hover:border-zinc-500 px-3 py-1.5 rounded transition-colors">
+                            Mark all as read (${totalUnread})
+                        </button>
+                    </div>
+                ` : ''}
                 <div class="space-y-2" role="list" aria-label="${channel === 'whatsapp' ? 'WhatsApp conversations' : 'SMS conversations'}">
                     ${visibleConversations.map(c => {
                         const when = (c.last.timestamp && typeof c.last.timestamp.toDate === 'function')
@@ -3254,6 +3266,30 @@
                 })
             }).catch(err => console.error('Mark read error:', err));
         }
+
+        window.markAllRead = function(channel) {
+            const unreadIds = allMessages
+                .filter(m => (m.channel || 'sms') === channel && m.direction !== 'outbound' && m.read === false)
+                .map(m => m.id);
+
+            if (unreadIds.length === 0) return;
+
+            // Update locally right away so all "new" badges clear instantly
+            allMessages.forEach(m => {
+                if (unreadIds.includes(m.id)) m.read = true;
+            });
+            renderChannelColumn(channel);
+
+            fetch(GOOGLE_SHEET_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'markMessagesRead',
+                    messageIds: unreadIds
+                })
+            }).catch(err => console.error('Mark all read error:', err));
+        };
 
         window.backToConversationList = function(channel) {
             if (channel === 'whatsapp') {
