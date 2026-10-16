@@ -185,7 +185,7 @@ function testInsightlyContacts() {
  * (e.g. +12525590231). This normalizes both to their last 10 digits
  * before comparing, so formatting differences don't cause a miss.
  *
- * This fetches your lead list (paginated, up to 10,000 leads) and
+ * This fetches your lead list (paginated, up to 2500 leads) and
  * matches client-side rather than using Insightly's Search endpoint,
  * since that endpoint requires an exact-format match and phone
  * formatting is inconsistent across records.
@@ -630,4 +630,29 @@ function removeBandFromInsightlyLead_(leadId, bandName) {
   }
 
   debugLog_('Removed "' + bandName + '" from Bands__c on lead ' + leadId + '.');
+}
+function testInsightlyLeadCount() {
+  const baseUrl = getInsightlyBaseUrl_();
+  const authHeader = getInsightlyAuthHeader_();
+  const pageSize = 500;
+  let total = 0, skip = 0, bridgetPos = -1;
+  for (let page = 0; page < 40; page++) {
+    const r = UrlFetchApp.fetch(baseUrl + '/Leads?top=' + pageSize + '&skip=' + skip, {
+      method: 'get', headers: { Authorization: authHeader }, muteHttpExceptions: true
+    });
+    if (r.getResponseCode() !== 200) {
+      debugLog_('Lead count test - HTTP ' + r.getResponseCode());
+      return;
+    }
+    const batch = JSON.parse(r.getContentText());
+    batch.forEach((l, i) => {
+      if (bridgetPos === -1 && [l.MOBILE, l.PHONE].some(p => normalizePhoneDigits_(p) === '5167801744')) {
+        bridgetPos = total + i + 1;
+      }
+    });
+    total += batch.length;
+    if (batch.length < pageSize) break;
+    skip += pageSize;
+  }
+  debugLog_('Lead count test - Insightly returned ' + total + ' leads. Bridget is lead number ' + bridgetPos + ' (app only reads the first 2500).');
 }
