@@ -196,7 +196,7 @@ function testInsightlyContacts() {
  */
 
 const INSIGHTLY_SOURCES_CACHE_KEY = 'insightly_lead_sources_v1';
-const INSIGHTLY_INDEX_KEY = 'insightly_index_v2';   // slim phone/name index of all leads
+const INSIGHTLY_INDEX_KEY = 'insightly_index_v3';   // slim phone/name index of all leads
 const INSIGHTLY_INDEX_TTL = 1800;                   // 30 minutes (a timer refreshes it every 10)
 const INSIGHTLY_INDEX_CHUNK_CHARS = 30000;          // keeps each cache item well under the 100 KB limit
 const INSIGHTLY_MISS_TTL = 180;                     // remember "not a lead" for 3 minutes
@@ -316,14 +316,23 @@ function buildInsightlyIndex_() {
     skip += pageSize;
   }
 
-  const entries = allLeads.map(l => ({
-    id: l.LEAD_ID,
-    n: [l.FIRST_NAME, l.LAST_NAME].filter(Boolean).join(' '),
-    p: [l.MOBILE, l.PHONE].map(normalizePhoneDigits_).filter(Boolean),
-    d: getCustomFieldValue_(l.CUSTOMFIELDS, 'Event_Date__c'),
-    v: getCustomFieldValue_(l.CUSTOMFIELDS, 'Venue__c'),
-    c: getCustomFieldValue_(l.CUSTOMFIELDS, 'CityState__c')
-  }));
+  const entries = allLeads.map(l => {
+    const entry = {
+      id: l.LEAD_ID,
+      n: [l.FIRST_NAME, l.LAST_NAME].filter(Boolean).join(' '),
+      p: [l.MOBILE, l.PHONE].map(normalizePhoneDigits_).filter(Boolean),
+      d: getCustomFieldValue_(l.CUSTOMFIELDS, 'Event_Date__c'),
+      v: getCustomFieldValue_(l.CUSTOMFIELDS, 'Venue__c'),
+      c: getCustomFieldValue_(l.CUSTOMFIELDS, 'CityState__c')
+    };
+    // Only manual leads carry these two extra fields (keeps the cache small).
+    // They let ManualLeadSync use this index instead of scanning all leads again.
+    if (isChecked_(getCustomFieldValue_(l.CUSTOMFIELDS, 'Added_Manually__c'))) {
+      entry.m = 1;
+      entry.t = l.DATE_CREATED_UTC ? String(l.DATE_CREATED_UTC) : '';
+    }
+    return entry;
+  });
 
   saveInsightlyIndexToCache_(entries);
   return entries;
@@ -397,7 +406,11 @@ function refreshInsightlyLeadIndex() {
     buildInsightlyIndex_();
   } catch (err) {
     debugLog_('ERROR refreshing Insightly lead index: ' + err.toString());
+    return;
   }
+  // Same 10-minute run also adds any new manual leads to the Messages tab,
+  // using the index we just built (no second scan of Insightly).
+  runManualLeadSync_(false);
 }
 
 /**

@@ -85,51 +85,31 @@ function fetchExistingSmsContactNumbers_() {
 }
 
 /**
- * Fetches Insightly leads (fresh, not cached) that have "Added Manually"
- * checked and were created within the lookback window.
+ * Gets recent manually created leads from the lead index (see Insightly.gs),
+ * so we do not scan all of Insightly a second time. The index is rebuilt
+ * every 10 minutes by refreshInsightlyLeadIndex, which also runs this sync.
  */
 function fetchRecentManualInsightlyLeads_() {
-  const baseUrl = getInsightlyBaseUrl_();
-  const authHeader = getInsightlyAuthHeader_();
+  const index = getInsightlyIndex_();
   const cutoff = Date.now() - MANUAL_LEAD_LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
-
-  let allLeads = [];
-  let skip = 0;
-  const pageSize = 500;
-  const maxPages = 20; // same cap as the rest of the app (10,000 leads)
-
-  for (let page = 0; page < maxPages; page++) {
-    const response = UrlFetchApp.fetch(baseUrl + '/Leads?top=' + pageSize + '&skip=' + skip, {
-      method: 'get',
-      headers: { Authorization: authHeader },
-      muteHttpExceptions: true
-    });
-    if (response.getResponseCode() !== 200) {
-      throw new Error('Insightly leads fetch failed (' + response.getResponseCode() + '): ' + response.getContentText());
-    }
-    const batch = JSON.parse(response.getContentText());
-    allLeads = allLeads.concat(batch);
-    if (batch.length < pageSize) break;
-    skip += pageSize;
-  }
 
   let manualCount = 0;
   let missingDateCount = 0;
   const recent = [];
 
-  allLeads.forEach(l => {
-    if (!isChecked_(getCustomFieldValue_(l.CUSTOMFIELDS, 'Added_Manually__c'))) return;
+  index.forEach(entry => {
+    if (!entry.m) return;
     manualCount++;
 
-    const created = l.DATE_CREATED_UTC ? new Date(l.DATE_CREATED_UTC.toString().replace(' ', 'T') + 'Z') : null;
+    const created = entry.t ? new Date(entry.t.replace(' ', 'T') + 'Z') : null;
     if (!created || isNaN(created.getTime())) {
       missingDateCount++;
       return;
     }
-    if (created.getTime() >= cutoff) recent.push(l);
+    if (created.getTime() >= cutoff) recent.push(entry);
   });
 
-  debugLog_('Manual lead sync: scanned ' + allLeads.length + ' leads, ' + manualCount +
+  debugLog_('Manual lead sync: scanned ' + index.length + ' leads (from index), ' + manualCount +
     ' marked manual, ' + recent.length + ' within last ' + MANUAL_LEAD_LOOKBACK_DAYS + ' days' +
     (missingDateCount ? ' (' + missingDateCount + ' skipped for missing created date)' : '') + '.');
 
@@ -137,6 +117,12 @@ function fetchRecentManualInsightlyLeads_() {
 }
 
 function runManualLeadSync_(dryRun) {
+  // Only one copy at a time, so two runs can never add the same lead twice.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    debugLog_('Manual lead sync: another run is in progress, skipping.');
+    return;
+  }
   try {
     const leads = fetchRecentManualInsightlyLeads_();
     if (leads.length === 0) {
@@ -149,8 +135,8 @@ function runManualLeadSync_(dryRun) {
     let added = 0;
 
     leads.forEach(l => {
-      const digits = normalizePhoneDigits_(l.MOBILE || l.PHONE);
-      const name = [l.FIRST_NAME, l.LAST_NAME].filter(Boolean).join(' ') || '(no name)';
+      const digits = (l.p && l.p[0]) || '';
+      const name = l.n || '(no name)';
 
       if (digits.length !== 10) {
         debugLog_('Manual lead sync: skipped ' + name + ' (phone missing or not a 10-digit US number).');
@@ -182,5 +168,7 @@ function runManualLeadSync_(dryRun) {
     debugLog_('Manual lead sync ' + (dryRun ? '(PREVIEW) ' : '') + 'finished: ' + added + ' lead(s) ' + (dryRun ? 'would be ' : '') + 'added.');
   } catch (err) {
     debugLog_('ERROR in manual lead sync: ' + err.toString());
+  } finally {
+    lock.releaseLock();
   }
 }
