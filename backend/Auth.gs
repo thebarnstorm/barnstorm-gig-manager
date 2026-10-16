@@ -8,7 +8,7 @@
 // ROLLOUT SWITCH:
 //   false = log unauthenticated requests in the Debug Log but still allow them
 //   true  = block them
-const ENFORCE_ADMIN_AUTH = false;
+const ENFORCE_ADMIN_AUTH = true;
 
 const ADMIN_AUTH_EMAIL = 'booking@thebarnstorm.com';
 // Firebase web API key (same public value that is in index.html)
