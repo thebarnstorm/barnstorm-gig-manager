@@ -30,7 +30,7 @@ jobs:
 
       - name: Point clasp at the backend folder
         env:
-          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+          SCRIPT_ID: 1EO0JOWSzzrhlBrwt9cFbl7IOEvvgUDTRY-gs70gCpvyeTERAuSv0fUwj
         run: echo "{\"scriptId\":\"$SCRIPT_ID\",\"rootDir\":\"backend\"}" > .clasp.json
 
       - name: Push files to Apps Script
@@ -38,5 +38,5 @@ jobs:
 
       - name: Update the live deployment (same URL)
         env:
-          DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
+          DEPLOYMENT_ID: AKfycbyjxPmvRrNPM5EItGBWuhZ4zTsq2yd0s4eQSPrg2VAxcPP4RUorVMCR8Qj6tsL2-xVY
         run: clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "Auto-deploy from GitHub"
