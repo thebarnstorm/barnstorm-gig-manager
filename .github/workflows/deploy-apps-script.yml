@@ -1,14 +1,17 @@
 # Sends the files in /backend to the Google Apps Script project.
-# SAFETY: this is set to MANUAL only (Actions tab > Run workflow) until
-# every Apps Script file is in /backend. To make it automatic later,
-# replace "workflow_dispatch:" with:
-#   push:
-#     branches: [main]
-#     paths: ['backend/**']
+# Runs automatically whenever a file in /backend changes on main,
+# and can also be run by hand (Actions tab > Run workflow).
 name: Deploy backend to Apps Script
 
 on:
+  push:
+    branches: [main]
+    paths: ['backend/**']
   workflow_dispatch:
+
+concurrency:
+  group: apps-script-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
