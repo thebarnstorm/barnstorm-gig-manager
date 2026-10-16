@@ -195,9 +195,12 @@ function testInsightlyContacts() {
  * ====================================================================
  */
 
-const INSIGHTLY_LEADS_CACHE_KEY = 'insightly_leads_v1';
 const INSIGHTLY_SOURCES_CACHE_KEY = 'insightly_lead_sources_v1';
-const INSIGHTLY_CACHE_TTL = 600; // 10 minutes
+const INSIGHTLY_INDEX_KEY = 'insightly_index_v2';   // slim phone/name index of all leads
+const INSIGHTLY_INDEX_TTL = 1800;                   // 30 minutes (a timer refreshes it every 10)
+const INSIGHTLY_INDEX_CHUNK_CHARS = 30000;          // keeps each cache item well under the 100 KB limit
+const INSIGHTLY_MISS_TTL = 180;                     // remember "not a lead" for 3 minutes
+const INSIGHTLY_BATCH_DIRECT_LIMIT = 4;             // max brand-new numbers searched directly per list load
 
 function normalizePhoneDigits_(phone) {
   if (!phone) return '';
@@ -255,38 +258,11 @@ function fetchInsightlyLeadSourceMap_() {
   return map;
 }
 
-function fetchAllInsightlyLeads_() {
-  const cache = CacheService.getScriptCache();
-  const cached = cache.get(INSIGHTLY_LEADS_CACHE_KEY);
-  if (cached) {
-    return JSON.parse(cached);
-  }
-
-  const baseUrl = getInsightlyBaseUrl_();
-  const authHeader = getInsightlyAuthHeader_();
-  let allLeads = [];
-  let skip = 0;
-  const pageSize = 500;
-  const maxPages = 20; // safety cap - 10,000 leads
-
-  for (let page = 0; page < maxPages; page++) {
-    const url = baseUrl + '/Leads?top=' + pageSize + '&skip=' + skip;
-    const response = UrlFetchApp.fetch(url, {
-      method: 'get',
-      headers: { Authorization: authHeader },
-      muteHttpExceptions: true
-    });
-    if (response.getResponseCode() !== 200) {
-      throw new Error('Insightly leads fetch failed (' + response.getResponseCode() + '): ' + response.getContentText());
-    }
-    const batch = JSON.parse(response.getContentText());
-    allLeads = allLeads.concat(batch);
-    if (batch.length < pageSize) break; // reached the last page
-    skip += pageSize;
-  }
-
-  // Keep only what we need, to stay well under the cache's size limit
-  const slim = allLeads.map(l => ({
+/**
+ * Turns a raw Insightly lead into the full set of fields the app shows.
+ */
+function toSlimInsightlyLead_(l) {
+  return {
     id: l.LEAD_ID,
     firstName: l.FIRST_NAME,
     lastName: l.LAST_NAME,
@@ -303,31 +279,231 @@ function fetchAllInsightlyLeads_() {
     leadOrigin: getCustomFieldValue_(l.CUSTOMFIELDS, 'Lead_Origin__c'),
     description: l.LEAD_DESCRIPTION || '',
     otherInfo: getCustomFieldValue_(l.CUSTOMFIELDS, 'Other_Info__c')
-  }));
+  };
+}
 
-  try {
-    cache.put(INSIGHTLY_LEADS_CACHE_KEY, JSON.stringify(slim), INSIGHTLY_CACHE_TTL);
-  } catch (err) {
-    // If the lead list is too large to cache, we just skip caching -
-    // lookups will be a bit slower but still work correctly.
-    Logger.log('Insightly cache put error (continuing without cache): ' + err);
+/**
+ * ====================================================================
+ * LEAD INDEX - a small, fast phone-number directory of ALL leads
+ * ====================================================================
+ * Downloads every lead once, keeps only what is needed to match a phone
+ * number and show a list row (id, name, phone digits, event date, venue,
+ * city/state), and stores it in the cache in small pieces. A 10-minute
+ * timer (installLeadIndexTrigger) keeps it fresh, so the app almost
+ * always reads it instantly. Full details for one lead are then fetched
+ * directly by ID, which is fast and always up to date.
+ */
+function buildInsightlyIndex_() {
+  const baseUrl = getInsightlyBaseUrl_();
+  const authHeader = getInsightlyAuthHeader_();
+  let allLeads = [];
+  let skip = 0;
+  const pageSize = 500;
+  const maxPages = 20; // safety cap - 10,000 leads
+
+  for (let page = 0; page < maxPages; page++) {
+    const response = UrlFetchApp.fetch(baseUrl + '/Leads?top=' + pageSize + '&skip=' + skip, {
+      method: 'get',
+      headers: { Authorization: authHeader },
+      muteHttpExceptions: true
+    });
+    if (response.getResponseCode() !== 200) {
+      throw new Error('Insightly leads fetch failed (' + response.getResponseCode() + '): ' + response.getContentText());
+    }
+    const batch = JSON.parse(response.getContentText());
+    allLeads = allLeads.concat(batch);
+    if (batch.length < pageSize) break; // reached the last page
+    skip += pageSize;
   }
 
-  return slim;
+  const entries = allLeads.map(l => ({
+    id: l.LEAD_ID,
+    n: [l.FIRST_NAME, l.LAST_NAME].filter(Boolean).join(' '),
+    p: [l.MOBILE, l.PHONE].map(normalizePhoneDigits_).filter(Boolean),
+    d: getCustomFieldValue_(l.CUSTOMFIELDS, 'Event_Date__c'),
+    v: getCustomFieldValue_(l.CUSTOMFIELDS, 'Venue__c'),
+    c: getCustomFieldValue_(l.CUSTOMFIELDS, 'CityState__c')
+  }));
+
+  saveInsightlyIndexToCache_(entries);
+  return entries;
+}
+
+function saveInsightlyIndexToCache_(entries) {
+  try {
+    const cache = CacheService.getScriptCache();
+    // Split into groups whose JSON stays under the chunk size. Each group is
+    // valid JSON on its own, so nothing is ever cut mid-character.
+    const chunks = [];
+    let current = [];
+    let size = 2;
+    entries.forEach(e => {
+      const len = JSON.stringify(e).length + 1;
+      if (size + len > INSIGHTLY_INDEX_CHUNK_CHARS && current.length) {
+        chunks.push(current);
+        current = [];
+        size = 2;
+      }
+      current.push(e);
+      size += len;
+    });
+    if (current.length) chunks.push(current);
+
+    chunks.forEach((c, i) => cache.put(INSIGHTLY_INDEX_KEY + '_' + i, JSON.stringify(c), INSIGHTLY_INDEX_TTL));
+    // The count is written last, so a half-written index is never read.
+    cache.put(INSIGHTLY_INDEX_KEY + '_n', String(chunks.length), INSIGHTLY_INDEX_TTL);
+  } catch (err) {
+    Logger.log('Insightly index cache put error (continuing without cache): ' + err);
+  }
+}
+
+function readInsightlyIndexFromCache_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const count = Number(cache.get(INSIGHTLY_INDEX_KEY + '_n'));
+    if (!count) return null;
+    let all = [];
+    for (let i = 0; i < count; i++) {
+      const part = cache.get(INSIGHTLY_INDEX_KEY + '_' + i);
+      if (part === null || part === undefined) return null; // a piece expired - rebuild
+      all = all.concat(JSON.parse(part));
+    }
+    return all;
+  } catch (err) {
+    return null;
+  }
+}
+
+function getInsightlyIndex_() {
+  return readInsightlyIndexFromCache_() || buildInsightlyIndex_();
+}
+
+/**
+ * RUN ONCE to set up the 10-minute timer that keeps the lead index fresh.
+ * Safe to run again (replaces the old timer).
+ */
+function installLeadIndexTrigger() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'refreshInsightlyLeadIndex') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+  ScriptApp.newTrigger('refreshInsightlyLeadIndex').timeBased().everyMinutes(10).create();
+}
+
+/** Runs on the timer. Rebuilds the lead index so lookups stay instant. */
+function refreshInsightlyLeadIndex() {
+  try {
+    buildInsightlyIndex_();
+  } catch (err) {
+    debugLog_('ERROR refreshing Insightly lead index: ' + err.toString());
+  }
+}
+
+/**
+ * Fetches one lead directly by its Insightly ID (fast, always current).
+ */
+function fetchInsightlyLeadById_(leadId) {
+  const response = UrlFetchApp.fetch(getInsightlyBaseUrl_() + '/Leads/' + leadId, {
+    method: 'get',
+    headers: { Authorization: getInsightlyAuthHeader_() },
+    muteHttpExceptions: true
+  });
+  if (response.getResponseCode() !== 200) return null;
+  return toSlimInsightlyLead_(JSON.parse(response.getContentText()));
+}
+
+/**
+ * DIRECT SEARCH - used for brand-new leads that are not in the index yet.
+ * Insightly's search only matches a phone number written exactly the same
+ * way it is stored, so this tries the common formats (all in parallel)
+ * and then double-checks each result by comparing digits, so a loose
+ * match can never return the wrong person.
+ * Returns { originalPhone: slimLead } for every phone that was found.
+ */
+function searchInsightlyLeadsByPhones_(phones) {
+  const baseUrl = getInsightlyBaseUrl_();
+  const authHeader = getInsightlyAuthHeader_();
+  const requests = [];
+  const owners = [];
+
+  phones.forEach(phone => {
+    const d = normalizePhoneDigits_(phone);
+    if (!d) return;
+    const dashed = d.length === 10 ? d.slice(0, 3) + '-' + d.slice(3, 6) + '-' + d.slice(6) : d;
+    const attempts = [
+      ['MOBILE', d], ['MOBILE', '+1' + d], ['MOBILE', dashed],
+      ['PHONE', d], ['PHONE', dashed]
+    ];
+    attempts.forEach(a => {
+      requests.push({
+        url: baseUrl + '/Leads/Search?field_name=' + a[0] + '&field_value=' + encodeURIComponent(a[1]),
+        method: 'get',
+        headers: { Authorization: authHeader },
+        muteHttpExceptions: true
+      });
+      owners.push({ phone: phone, digits: d });
+    });
+  });
+
+  const found = {};
+  if (requests.length === 0) return found;
+
+  const responses = UrlFetchApp.fetchAll(requests);
+  responses.forEach((response, i) => {
+    const owner = owners[i];
+    if (found[owner.phone] || response.getResponseCode() !== 200) return;
+    try {
+      const leads = JSON.parse(response.getContentText());
+      const match = (Array.isArray(leads) ? leads : []).find(l =>
+        [l.MOBILE, l.PHONE].some(p => normalizePhoneDigits_(p) === owner.digits));
+      if (match) found[owner.phone] = toSlimInsightlyLead_(match);
+    } catch (err) {
+      // ignore a response that is not a lead list
+    }
+  });
+  return found;
+}
+
+function recentlyMissed_(digits) {
+  try {
+    return CacheService.getScriptCache().get('insightly_miss_' + digits) !== null;
+  } catch (err) {
+    return false;
+  }
+}
+
+function markMissed_(digits) {
+  try {
+    CacheService.getScriptCache().put('insightly_miss_' + digits, '1', INSIGHTLY_MISS_TTL);
+  } catch (err) {}
 }
 
 function findInsightlyLeadByPhone_(phone) {
   const target = normalizePhoneDigits_(phone);
   if (!target) return null;
 
-  const leads = fetchAllInsightlyLeads_();
-  for (const l of leads) {
-    for (const p of l.phones) {
-      if (normalizePhoneDigits_(p) === target) {
-        return l;
-      }
+  // 1) Fast path: the lead index, then fetch that one lead's full details by ID.
+  let index = null;
+  try {
+    index = getInsightlyIndex_();
+  } catch (err) {
+    debugLog_('Insightly index unavailable, using direct search: ' + err.toString());
+  }
+  if (index) {
+    const hit = index.find(e => e.p.indexOf(target) !== -1);
+    if (hit) {
+      const full = fetchInsightlyLeadById_(hit.id);
+      if (full) return full;
     }
   }
+
+  // 2) Not in the index (likely a brand-new lead): search Insightly directly.
+  if (recentlyMissed_(target)) return null;
+  const found = searchInsightlyLeadsByPhones_([phone]);
+  if (found[phone]) return found[phone];
+
+  markMissed_(target);
   return null;
 }
 
@@ -435,31 +611,60 @@ function handleLookupContactById(leadId) {
 
 /**
  * Handles a "look up these phone numbers, all at once" request - used
- * for showing names next to conversations in a list. Fetches the
- * lead list only once (using the same cache as single lookups) no
- * matter how many phone numbers are asked for, rather than each
- * conversation triggering its own separate Insightly fetch.
+ * for showing names next to conversations in a list. Reads the lead
+ * index once (instant when cached) for the whole batch. Numbers not in
+ * the index (likely brand-new leads) get a quick direct search, limited
+ * to a few per request so the list always loads fast.
  * Called from doGet(e) when e.parameter.action === 'lookupContactsBatch'.
  */
 function handleLookupContactsBatch(phonesParam) {
   try {
     const phones = (phonesParam || '').split(',').map(p => p.trim()).filter(Boolean);
-    const leads = fetchAllInsightlyLeads_(); // single fetch (or cache hit) for the whole batch
+
+    let index = null;
+    try {
+      index = getInsightlyIndex_();
+    } catch (err) {
+      debugLog_('Insightly index unavailable for batch lookup: ' + err.toString());
+    }
 
     const results = {};
+    const unmatched = [];
     phones.forEach(phone => {
       const target = normalizePhoneDigits_(phone);
-      const match = leads.find(l => l.phones.some(p => normalizePhoneDigits_(p) === target));
-      results[phone] = match
-        ? {
-            found: true,
-            name: [match.firstName, match.lastName].filter(Boolean).join(' ') || '(no name)',
-            eventDate: formatInsightlyDate_(match.eventDate),
-            venue: match.venue || '',
-            cityState: match.cityState || ''
-          }
-        : { found: false };
+      const hit = (index && target) ? index.find(e => e.p.indexOf(target) !== -1) : null;
+      if (hit) {
+        results[phone] = {
+          found: true,
+          name: hit.n || '(no name)',
+          eventDate: formatInsightlyDate_(hit.d),
+          venue: hit.v || '',
+          cityState: hit.c || ''
+        };
+      } else {
+        results[phone] = { found: false };
+        if (target && !recentlyMissed_(target)) unmatched.push(phone);
+      }
     });
+
+    if (unmatched.length > 0) {
+      const toSearch = unmatched.slice(0, INSIGHTLY_BATCH_DIRECT_LIMIT);
+      const found = searchInsightlyLeadsByPhones_(toSearch);
+      toSearch.forEach(phone => {
+        const m = found[phone];
+        if (m) {
+          results[phone] = {
+            found: true,
+            name: [m.firstName, m.lastName].filter(Boolean).join(' ') || '(no name)',
+            eventDate: formatInsightlyDate_(m.eventDate),
+            venue: m.venue || '',
+            cityState: m.cityState || ''
+          };
+        } else {
+          markMissed_(normalizePhoneDigits_(phone));
+        }
+      });
+    }
 
     return ContentService.createTextOutput(JSON.stringify({ success: true, results: results }))
       .setMimeType(ContentService.MimeType.JSON);
