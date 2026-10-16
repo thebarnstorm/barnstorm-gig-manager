@@ -5,6 +5,13 @@ const GIGS_TTL  = 300;   // 5 minutes
 const META_TTL  = 3600;  // 1 hour
 
 function doGet(e) {
+  // ── Admin-only actions need a valid login token (see Auth.gs) ──
+  const ADMIN_GET_ACTIONS = ['lookupContact', 'lookupContactById', 'lookupContactsBatch', 'getRoster', 'getRosterGroups'];
+  if (ADMIN_GET_ACTIONS.indexOf(e.parameter.action) !== -1) {
+    const denied = requireAdmin_(e.parameter.idToken, e.parameter.action);
+    if (denied) return denied;
+  }
+
   // ── Handle Insightly contact lookups from the Messages tab ─────
   if (e.parameter.action === 'lookupContact') {
     return handleLookupContact(e.parameter.phone);
@@ -306,6 +313,13 @@ function doPost(e) {
     }
 
     const params = JSON.parse(e.postData.contents);
+
+    // ── Admin-only actions need a valid login token (see Auth.gs) ──
+    const ADMIN_POST_ACTIONS = ['sendMessage', 'addLead', 'markMessagesRead', 'createReferral', 'deleteReferral', 'archiveReferral', 'restoreReferral'];
+    if (ADMIN_POST_ACTIONS.indexOf(params.action) !== -1) {
+      const denied = requireAdmin_(params.idToken, params.action);
+      if (denied) return denied;
+    }
 
     // ── Handle push notification token saves ──────────────
     if (params.action === 'savePushToken') {

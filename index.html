@@ -243,6 +243,31 @@
         const db = getFirestore(app);
         const storage = getStorage(app);
         const OWNER_UID = 'jpHnAHzT1nPDZRkAIeANcSIPzLN2';
+
+        // ── Secure backend calls: attach the signed-in user's Firebase login token ──
+        async function getBackendToken() {
+            try {
+                if (auth.currentUser) return await auth.currentUser.getIdToken();
+            } catch (err) {
+                console.error('Could not get login token:', err);
+            }
+            return '';
+        }
+        // POST (fire-and-forget style, same as before) with the token added to the body
+        async function backendPost(payload) {
+            const idToken = await getBackendToken();
+            return fetch(GOOGLE_SHEET_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({}, payload, { idToken: idToken }))
+            });
+        }
+        // GET with the token added to the web address. Pass the part starting with "?action=..."
+        async function backendGet(query) {
+            const idToken = await getBackendToken();
+            return fetch(GOOGLE_SHEET_API_URL + query + '&idToken=' + encodeURIComponent(idToken));
+        }
         // FIX 1: Force download parameter for better mobile compatibility
         const LOGO_URL = 'https://www.dropbox.com/scl/fi/05pdxbaub02h1qa6pk9dp/Barnstorm-Logo.jpg?rlkey=8fghkclk4vvz0nxjkr2dninl5&st=1q1vn1b1&raw=1';
 
@@ -2508,15 +2533,10 @@
             }
 
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                await backendPost({
                         action: 'addLead',
                         to: number
-                    })
-                });
+                    });
                 alert('Lead ' + number + ' added. It should appear in the list in a few seconds.');
             } catch (err) {
                 console.error('Add lead error:', err);
@@ -2528,15 +2548,10 @@
             if (!confirm('Clear this referral? This removes it and its response tracking - it cannot be undone.')) return;
 
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                await backendPost({
                         action: 'deleteReferral',
                         referralId: referralId
-                    })
-                });
+                    });
                 // With no-cors we can't read the response, but the list
                 // will update automatically once Firestore reflects the delete.
             } catch (err) {
@@ -2676,12 +2691,7 @@
         window.archiveReferral = async function(referralId) {
             setReferralArchivedLocally(referralId, true);
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'archiveReferral', referralId: referralId })
-                });
+                await backendPost({ action: 'archiveReferral', referralId: referralId });
             } catch (err) {
                 console.error('Archive referral error:', err);
                 delete pendingArchiveOverrides[referralId];
@@ -2694,12 +2704,7 @@
         window.restoreReferral = async function(referralId) {
             setReferralArchivedLocally(referralId, false);
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'restoreReferral', referralId: referralId })
-                });
+                await backendPost({ action: 'restoreReferral', referralId: referralId });
             } catch (err) {
                 console.error('Restore referral error:', err);
                 delete pendingArchiveOverrides[referralId];
@@ -2736,7 +2741,7 @@
 
             el.innerHTML = '<span class="text-zinc-500 text-sm">Looking up lead info...</span>';
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactById&leadId=' + encodeURIComponent(leadId));
+                const response = await backendGet('?action=lookupContactById&leadId=' + encodeURIComponent(leadId));
                 const data = await response.json();
                 cacheSet(referralLeadCache, leadId, data);
                 const freshEl = document.getElementById(elId);
@@ -2793,7 +2798,7 @@
             }
 
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRoster');
+                const response = await backendGet('?action=getRoster');
                 const data = await response.json();
                 const individualsEl = document.getElementById('referralIndividualsList');
                 if (!individualsEl) return;
@@ -2840,17 +2845,12 @@
             window.closeNewReferralForm();
 
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                await backendPost({
                         action: 'createReferral',
                         details: details,
                         individualPhones: individualPhones,
                         insightlyLeadId: currentReferralLeadId
-                    })
-                });
+                    });
                 // With no-cors we can't read the response, but the referral
                 // and its status will appear here automatically once
                 // Apps Script saves it to Firestore.
@@ -2993,7 +2993,7 @@
         async function getBandleaderRosterCache() {
             if (bandleaderRosterCache) return bandleaderRosterCache;
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=getRoster');
+                const response = await backendGet('?action=getRoster');
                 const data = await response.json();
                 if (data.success) {
                     bandleaderRosterCache = data.roster;
@@ -3039,7 +3039,7 @@
             const numbers = allNumbers.filter(n => !cacheGet(insightlyListCache, n));
             if (numbers.length === 0) return;
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContactsBatch&phones=' + encodeURIComponent(numbers.join(',')));
+                const response = await backendGet('?action=lookupContactsBatch&phones=' + encodeURIComponent(numbers.join(',')));
                 const data = await response.json();
                 if (!data.success) return;
 
@@ -3194,7 +3194,7 @@
             if (!el) return;
 
             try {
-                const response = await fetch(GOOGLE_SHEET_API_URL + '?action=lookupContact&phone=' + encodeURIComponent(number));
+                const response = await backendGet('?action=lookupContact&phone=' + encodeURIComponent(number));
                 const data = await response.json();
 
                 // Bail out quietly if the user navigated away while this was loading
@@ -3256,15 +3256,10 @@
                 if (msg) msg.read = true;
             });
 
-            fetch(GOOGLE_SHEET_API_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            backendPost({
                     action: 'markMessagesRead',
                     messageIds: unreadIds
-                })
-            }).catch(err => console.error('Mark read error:', err));
+                }).catch(err => console.error('Mark read error:', err));
         }
 
         window.markAllRead = function(channel) {
@@ -3280,15 +3275,10 @@
             });
             renderChannelColumn(channel);
 
-            fetch(GOOGLE_SHEET_API_URL, {
-                method: 'POST',
-                mode: 'no-cors',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            backendPost({
                     action: 'markMessagesRead',
                     messageIds: unreadIds
-                })
-            }).catch(err => console.error('Mark all read error:', err));
+                }).catch(err => console.error('Mark all read error:', err));
         };
 
         window.backToConversationList = function(channel) {
@@ -3310,17 +3300,12 @@
             input.disabled = true;
 
             try {
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
+                await backendPost({
                         action: 'sendMessage',
                         to: number,
                         body: body,
                         channel: channel
-                    })
-                });
+                    });
                 // With no-cors we can't read the response, but the sent
                 // message will appear here automatically once Apps Script
                 // saves it to Firestore (usually within a couple seconds).
