@@ -176,7 +176,9 @@ function sendReferralTemplateMessage_(to, details) {
   // WhatsApp template variables can't contain newlines, tabs, or more
   // than 4 consecutive spaces - flatten anything like that to a single
   // space so multi-line "More Info" text doesn't break the send.
-  const clean = (value) => (value || '').toString().replace(/[\n\t\r]+/g, ' ').replace(/ {2,}/g, ' ').trim();
+  // An empty value can make Twilio reject the whole send (error 21656), so
+  // blank fields are filled with "Not provided".
+  const clean = (value) => (value || '').toString().replace(/[\n\t\r]+/g, ' ').replace(/ {2,}/g, ' ').trim() || 'Not provided';
 
   const contentVariables = JSON.stringify({
     '1': clean(details.date),

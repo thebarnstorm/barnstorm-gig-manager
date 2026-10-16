@@ -295,7 +295,7 @@ function doGet(e) {
 function doPost(e) {
   try {
     Logger.log('doPost called');
-    debugLog_('doPost fired. parameter=' + JSON.stringify(e.parameter) + ' | postData.type=' + (e.postData ? e.postData.type : 'none') + ' | contents=' + (e.postData ? e.postData.contents : 'none'));
+    debugLog_('doPost fired. parameter=' + JSON.stringify(e.parameter) + ' | postData.type=' + (e.postData ? e.postData.type : 'none') + ' | contents=' + (e.postData ? String(e.postData.contents).replace(/"idToken":"[^"]*"/g, '"idToken":"[hidden]"') : 'none'));
 
     // ── NEW: handle incoming Twilio SMS/WhatsApp webhooks ──────
     // Twilio sends form fields (not JSON), so this must be checked
