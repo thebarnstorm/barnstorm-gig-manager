@@ -1,0 +1,42 @@
+# Sends the files in /backend to the Google Apps Script project.
+# SAFETY: this is set to MANUAL only (Actions tab > Run workflow) until
+# every Apps Script file is in /backend. To make it automatic later,
+# replace "workflow_dispatch:" with:
+#   push:
+#     branches: [main]
+#     paths: ['backend/**']
+name: Deploy backend to Apps Script
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Write clasp login
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: echo "$CLASPRC_JSON" > ~/.clasprc.json
+
+      - name: Point clasp at the backend folder
+        env:
+          SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+        run: echo "{\"scriptId\":\"$SCRIPT_ID\",\"rootDir\":\"backend\"}" > .clasp.json
+
+      - name: Push files to Apps Script
+        run: clasp push --force
+
+      - name: Update the live deployment (same URL)
+        env:
+          DEPLOYMENT_ID: ${{ secrets.APPS_SCRIPT_DEPLOYMENT_ID }}
+        run: clasp deploy --deploymentId "$DEPLOYMENT_ID" --description "Auto-deploy from GitHub"
