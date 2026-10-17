@@ -1321,15 +1321,11 @@
 
                 // Send the request. no-cors means we cannot read the reply,
                 // so we confirm below by re-checking the Sheet.
-                await fetch(GOOGLE_SHEET_API_URL, {
-                    method: 'POST',
-                    mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        gigId: gigId,
-                        memberName: memberName,
-                        type: type
-                    })
+                // backendPost also attaches your login token so the server knows who is asking
+                await backendPost({
+                    gigId: gigId,
+                    memberName: memberName,
+                    type: type
                 });
 
                 // Confirm it worked: reload fresh gigs and make sure the person is no longer listed.

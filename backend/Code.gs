@@ -363,6 +363,10 @@ function doPost(e) {
     const memberName = params.memberName;
     const type = params.type;
 
+    // ── Only the member being marked N/A (or the booking account) may send this (see Auth.gs) ──
+    const naDenied = checkNaSender_(params);
+    if (naDenied) return naDenied;
+
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName('Barnstorm BI');
 
