@@ -1300,58 +1300,64 @@
             
             if (!confirm(confirmMsg)) return;
             
+            const fallbackMsg = 'Please email booking@thebarnstorm.com directly:\n"I need a sub for ' + gig.eventName + ' on ' + gig.date + ' (' + role + ')"';
+            const listKey = type === 'musician' ? 'musicians' : 'production';
+            const nameKey = memberName.toLowerCase().trim();
+            // How many times this person is listed on this gig (in this group of roles)
+            const countListed = (g) => ((g && g[listKey]) || [])
+                .filter(x => (x.memberName || '').toLowerCase().trim() === nameKey).length;
+            const listedBefore = countListed(gig);
+
+            const modal = document.querySelector('[role="dialog"]');
+            const btn = modal ? modal.querySelector('button[onclick*="markAsNA"]') : null;
+            const originalBtnText = btn ? btn.textContent : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Sending...';
+            }
+
             try {
                 log('Sending POST request to:', GOOGLE_SHEET_API_URL);
-                
-                // Show loading state
-                const modal = document.querySelector('[role="dialog"]');
-                if (modal) {
-                    const btn = modal.querySelector(`button[onclick*="markAsNA"]`);
-                    if (btn) {
-                        btn.disabled = true;
-                        btn.textContent = '...';
-                    }
-                }
-                
-                // Send POST request to Apps Script
-                const response = await fetch(GOOGLE_SHEET_API_URL, {
+
+                // Send the request. no-cors means we cannot read the reply,
+                // so we confirm below by re-checking the Sheet.
+                await fetch(GOOGLE_SHEET_API_URL, {
                     method: 'POST',
-                    mode: 'no-cors', // Bypass CORS preflight
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         gigId: gigId,
                         memberName: memberName,
                         type: type
                     })
                 });
-                
-                log('Request sent successfully');
-                
-                // With no-cors mode, we can't read the response
-                // But the request should go through
-                alert('Your N/A request has been sent!\n\nAn email should be sent to booking@thebarnstorm.com.\n\nPlease check with them to confirm it was received.');
-                
-                // Update local gigs data to reflect the change
-                if (type === 'musician' && gig.musicians && gig.musicians[index]) {
-                    gig.musicians[index].isNA = true;
-                    gig.musicians[index].originalName = memberName;
-                } else if (type === 'production' && gig.production && gig.production[index]) {
-                    gig.production[index].isNA = true;
-                    gig.production[index].originalName = memberName;
-                }
-                
-                // Clear cache to force refresh on next load
+
+                // Confirm it worked: reload fresh gigs and make sure the person is no longer listed.
+                // Try up to 3 times in case the Sheet takes a moment to update.
                 localStorage.removeItem('barnstorm_gigs_cache');
                 localStorage.removeItem('barnstorm_gigs_cache_time');
-                
-                // Refresh the gig detail modal
+                let confirmed = false;
+                for (let attempt = 1; attempt <= 3 && !confirmed; attempt++) {
+                    if (attempt > 1) await new Promise(r => setTimeout(r, 1500));
+                    await loadGigsFromSheet(true);
+                    const fresh = gigs.find(x => x.id === gigId);
+                    confirmed = !!fresh && countListed(fresh) < listedBefore;
+                }
+
                 modal?.remove();
+                if (confirmed) {
+                    alert('Confirmed! You are marked as N/A for this gig and a sub is being requested.');
+                } else {
+                    alert('We could NOT confirm your N/A went through.\n\n' + fallbackMsg);
+                }
                 window.showGigDetail(gigId);
             } catch (error) {
                 console.error('Error sending N/A request:', error);
-                alert('There was an error sending your N/A request.\n\nPlease contact booking@thebarnstorm.com directly:\n"I need a sub for ' + gig.eventName + ' on ' + gig.date + ' (' + role + ')"');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = originalBtnText;
+                }
+                alert('There was an error sending your N/A request.\n\n' + fallbackMsg);
             }
         };
         
