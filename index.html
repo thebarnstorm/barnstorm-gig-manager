@@ -244,6 +244,10 @@
         const storage = getStorage(app);
         const OWNER_UID = 'jpHnAHzT1nPDZRkAIeANcSIPzLN2';
 
+        // Debug messages are off by default. Set DEBUG to true while troubleshooting.
+        const DEBUG = false;
+        const log = (...args) => { if (DEBUG) console.log(...args); };
+
         // ── Secure backend calls: attach the signed-in user's Firebase login token ──
         async function getBackendToken() {
             try {
@@ -285,12 +289,6 @@
         
         // Pagination state
         let currentPage = 1;
-        let itemsPerPage = 10;
-        let totalPages = 1;
-        
-        // Touch handling for mobile swipe
-        let touchStartX = 0;
-        let touchEndX = 0;
         
         // Previous render state to avoid unnecessary re-renders
         let lastRenderedGigsState = null;
@@ -298,15 +296,15 @@
         let messagesUnsubscribe = null;
 
         onAuthStateChanged(auth, (user) => {
-            console.log('=== AUTH STATE CHANGED ===');
-            console.log('User:', user);
+            log('=== AUTH STATE CHANGED ===');
+            log('User:', user);
             if (user) {
-                console.log('User logged in - UID:', user.uid);
-                console.log('User email:', user.email);
-                console.log('User displayName:', user.displayName);
+                log('User logged in - UID:', user.uid);
+                log('User email:', user.email);
+                log('User displayName:', user.displayName);
                 
                 const isOwner = user.uid === OWNER_UID;
-                console.log('Is owner?', isOwner);
+                log('Is owner?', isOwner);
                 
                 currentUser = {
                     uid: user.uid,
@@ -315,18 +313,18 @@
                     role: isOwner ? 'owner' : 'member'
                 };
                 
-                console.log('CurrentUser object:', currentUser);
-                console.log('About to call loadMembers()');
+                log('CurrentUser object:', currentUser);
+                log('About to call loadMembers()');
                 loadMembers();
-                console.log('About to call loadGigsFromSheet()');
+                log('About to call loadGigsFromSheet()');
                 loadGigsFromSheet();
-                console.log('About to call showMainApp()');
+                log('About to call showMainApp()');
                 showMainApp();
                 setupForegroundPush();
                 applyDeepLink();
-                console.log('=== AUTH STATE PROCESSING COMPLETE ===');
+                log('=== AUTH STATE PROCESSING COMPLETE ===');
             } else {
-                console.log('No user logged in');
+                log('No user logged in');
                 currentUser = null;
                 showLogin();
             }
@@ -351,11 +349,11 @@
                     if (matchingMember && matchingMember.name) {
                         const oldName = currentUser.name;
                         currentUser.name = matchingMember.name;
-                        console.log('✅ Updated currentUser.name from:', oldName, 'to:', currentUser.name);
+                        log('✅ Updated currentUser.name from:', oldName, 'to:', currentUser.name);
                         
                         // If name changed and we're viewing a gig detail, refresh it
                         if (oldName !== currentUser.name && currentView === 'gigs') {
-                            console.log('Name updated - forcing gig view refresh');
+                            log('Name updated - forcing gig view refresh');
                             lastRenderedGigsState = null; // Force re-render
                             if (document.getElementById('gigsContainer')) {
                                 renderGigs();
@@ -377,71 +375,64 @@
         }
 
         async function loadGigsFromSheet(forceRefresh = false) {
-            console.log('=== LOAD GIGS FROM SHEET START ===');
-            console.log('forceRefresh:', forceRefresh);
+            log('=== LOAD GIGS FROM SHEET START ===');
+            log('forceRefresh:', forceRefresh);
             
             const now = Date.now();
             const cacheExpiry = 5 * 60 * 1000;
             
-            console.log('Cache check - gigsCache exists?', !!gigsCache);
-            console.log('Cache check - gigsCacheTimestamp:', gigsCacheTimestamp);
-            console.log('Cache check - age:', now - gigsCacheTimestamp, 'ms');
+            log('Cache check - gigsCache exists?', !!gigsCache);
+            log('Cache check - gigsCacheTimestamp:', gigsCacheTimestamp);
+            log('Cache check - age:', now - gigsCacheTimestamp, 'ms');
             
             if (!forceRefresh && gigsCache && gigsCacheTimestamp && (now - gigsCacheTimestamp) < cacheExpiry) {
-                console.log('Using cached gigs data - count:', gigsCache.length);
+                log('Using cached gigs data - count:', gigsCache.length);
                 gigs = gigsCache;
                 if (document.getElementById('gigsContainer')) {
-                    console.log('gigsContainer exists, calling renderGigs()');
+                    log('gigsContainer exists, calling renderGigs()');
                     renderGigs();
                 } else {
-                    console.log('gigsContainer does not exist yet');
+                    log('gigsContainer does not exist yet');
                 }
                 return;
             }
             
-            console.log('Fetching fresh data from API...');
+            log('Fetching fresh data from API...');
 
             const container = document.getElementById('gigsContainer');
-            if (container) {
+
+            // Show saved gigs instantly (any age), then refresh quietly in the background.
+            // Only show the loading skeleton if there is nothing saved yet.
+            let hadSavedGigs = false;
+            try {
+                const cachedData = localStorage.getItem('barnstorm_gigs_cache');
+                if (cachedData) {
+                    const cachedGigs = JSON.parse(cachedData);
+                    if (Array.isArray(cachedGigs) && cachedGigs.length > 0) {
+                        gigs = cachedGigs;
+                        hadSavedGigs = true;
+                        if (container) container.removeAttribute('aria-busy');
+                        renderGigs();
+                    }
+                }
+            } catch (e) {
+                console.error('Error reading saved gigs:', e);
+            }
+
+            if (!hadSavedGigs && container) {
                 container.innerHTML = renderSkeletonLoader();
                 container.setAttribute('aria-busy', 'true');
             }
 
-            // Try to load cached data first for instant display
-            const cachedData = localStorage.getItem('barnstorm_gigs_cache');
-            const cacheTimestamp = localStorage.getItem('barnstorm_gigs_cache_time');
-            const cacheAge = cacheTimestamp ? Date.now() - parseInt(cacheTimestamp) : Infinity;
-            
-            // If cache is less than 5 minutes old, use it immediately
-            if (cachedData && cacheAge < 5 * 60 * 1000) {
-                console.log('Using cached data (age: ' + Math.round(cacheAge / 1000) + 's)');
-                try {
-                    const cachedGigs = JSON.parse(cachedData);
-                    gigs = cachedGigs;
-                    console.log('Loaded ' + gigs.length + ' gigs from cache');
-                    
-                    // Render immediately with cached data
-                    if (container) {
-                        container.removeAttribute('aria-busy');
-                    }
-                    renderGigs();
-                    
-                    // Still fetch fresh data in background to update cache
-                    // But don't show loading indicator since we have cached data
-                } catch (e) {
-                    console.error('Error parsing cached data:', e);
-                }
-            }
-
             try {
-                console.log('Fetching fresh data from:', GOOGLE_SHEET_API_URL);
+                log('Fetching fresh data from:', GOOGLE_SHEET_API_URL);
                 
                 if (GOOGLE_SHEET_API_URL === 'YOUR_APPS_SCRIPT_WEB_APP_URL_HERE') {
                     throw new Error('You need to replace YOUR_APPS_SCRIPT_WEB_APP_URL_HERE with your actual Apps Script URL');
                 }
                 
                 const response = await fetch(GOOGLE_SHEET_API_URL);
-                console.log('Response status:', response.status);
+                log('Response status:', response.status);
                 
                 if (!response.ok) {
                     const errorText = await response.text();
@@ -450,25 +441,25 @@
                 }
                 
                 const data = await response.json();
-                console.log('=== API RESPONSE RECEIVED ===');
-                console.log('typeof data:', typeof data);
-                console.log('Is data an array?', Array.isArray(data));
-                console.log('data keys:', Object.keys(data));
-                console.log('data.gigs exists?', 'gigs' in data);
-                console.log('Is data.gigs an array?', Array.isArray(data.gigs));
+                log('=== API RESPONSE RECEIVED ===');
+                log('typeof data:', typeof data);
+                log('Is data an array?', Array.isArray(data));
+                log('data keys:', Object.keys(data));
+                log('data.gigs exists?', 'gigs' in data);
+                log('Is data.gigs an array?', Array.isArray(data.gigs));
                 if (data.gigs) {
-                    console.log('data.gigs length:', data.gigs.length);
+                    log('data.gigs length:', data.gigs.length);
                 }
-                console.log('First 1000 chars of data:', JSON.stringify(data).substring(0, 1000));
-                console.log('Full data object keys and types:');
+                log('First 1000 chars of data:', JSON.stringify(data).substring(0, 1000));
+                log('Full data object keys and types:');
                 for (const key in data) {
-                    console.log(`  ${key}: ${typeof data[key]}, isArray: ${Array.isArray(data[key])}`);
+                    log(`  ${key}: ${typeof data[key]}, isArray: ${Array.isArray(data[key])}`);
                 }
                 
                 // Handle both old and new API formats
                 let gigsArray = data.gigs || data;
-                console.log('After extraction - gigsArray type:', typeof gigsArray);
-                console.log('After extraction - is array?', Array.isArray(gigsArray));
+                log('After extraction - gigsArray type:', typeof gigsArray);
+                log('After extraction - is array?', Array.isArray(gigsArray));
                 
                 // If it's not an array, something is wrong
                 if (!Array.isArray(gigsArray)) {
@@ -476,8 +467,8 @@
                     throw new Error('Invalid data format received from API');
                 }
                 
-                console.log('gigsArray length BEFORE transform:', gigsArray.length);
-                console.log('First gig BEFORE transform:', gigsArray[0]);
+                log('gigsArray length BEFORE transform:', gigsArray.length);
+                log('First gig BEFORE transform:', gigsArray[0]);
                 
                 // Transform data to maintain compatibility
                 gigsArray = gigsArray.map(gig => {
@@ -530,47 +521,52 @@
                     };
                 });
                 
-                console.log('gigsArray length AFTER transform:', gigsArray.length);
-                console.log('First gig AFTER transform:', gigsArray[0]);
+                log('gigsArray length AFTER transform:', gigsArray.length);
+                log('First gig AFTER transform:', gigsArray[0]);
                 
-                console.log('=== SETTING GIGS ARRAY ===');
+                log('=== SETTING GIGS ARRAY ===');
                 gigs = gigsArray;
                 gigsCache = gigsArray;
                 gigsCacheTimestamp = now;
-                console.log('gigs variable now has', gigs.length, 'items');
-                console.log('gigsCache now has', gigsCache.length, 'items');
+                log('gigs variable now has', gigs.length, 'items');
+                log('gigsCache now has', gigsCache.length, 'items');
                 
                 // Store in localStorage for instant future loads
                 try {
                     localStorage.setItem('barnstorm_gigs_cache', JSON.stringify(gigs));
                     localStorage.setItem('barnstorm_gigs_cache_time', Date.now().toString());
-                    console.log('Data cached in localStorage');
+                    log('Data cached in localStorage');
                 } catch (e) {
                     console.error('Error caching to localStorage:', e);
                 }
                 
                 // Reset render state to force a re-render with new data
                 lastRenderedGigsState = null;
-                console.log('Render state reset');
+                log('Render state reset');
                 
                 if (container) {
                     container.setAttribute('aria-busy', 'false');
-                    console.log('Container aria-busy set to false');
+                    log('Container aria-busy set to false');
                 }
                 
                 // Only render if the container exists
                 const gigsContainerCheck = document.getElementById('gigsContainer');
-                console.log('Checking for gigsContainer:', !!gigsContainerCheck);
+                log('Checking for gigsContainer:', !!gigsContainerCheck);
                 if (gigsContainerCheck) {
-                    console.log('=== CALLING renderGigs() ===');
+                    log('=== CALLING renderGigs() ===');
                     renderGigs();
-                    console.log('=== renderGigs() call complete ===');
+                    log('=== renderGigs() call complete ===');
                 } else {
-                    console.log('WARNING: gigsContainer not found, skipping render');
+                    log('WARNING: gigsContainer not found, skipping render');
                 }
-                console.log('=== LOAD GIGS FROM SHEET COMPLETE ===');
+                log('=== LOAD GIGS FROM SHEET COMPLETE ===');
             } catch (error) {
                 console.error('Error loading gigs:', error);
+                if (hadSavedGigs) {
+                    // Keep showing the saved gigs instead of replacing them with an error
+                    if (container) container.setAttribute('aria-busy', 'false');
+                    return;
+                }
                 if (container) {
                     container.setAttribute('aria-busy', 'false');
                     container.innerHTML = `
@@ -895,7 +891,6 @@
                 </div>
             `;
             
-            setupTouchHandlers();
             switchView('gigs');
             
             // Close mobile menu when clicking outside
@@ -908,43 +903,6 @@
             });
         }
         
-        // Mobile touch swipe handlers for calendar navigation
-        function setupTouchHandlers() {
-            document.addEventListener('touchstart', (e) => {
-                touchStartX = e.changedTouches[0].screenX;
-            }, { passive: true });
-
-            document.addEventListener('touchend', (e) => {
-                touchEndX = e.changedTouches[0].screenX;
-                // Swipe functionality disabled per user request
-                // handleSwipe();
-            }, { passive: true });
-        }
-        
-        function handleSwipe() {
-            // Swipe gesture for calendar navigation disabled
-            // Users can use the Previous/Next buttons instead
-            return;
-            
-            /* Original swipe code commented out:
-            const swipeThreshold = 50;
-            const diff = touchStartX - touchEndX;
-            
-            // Only handle swipe in calendar view
-            if (viewMode !== 'calendar') return;
-            
-            if (Math.abs(diff) > swipeThreshold) {
-                if (diff > 0) {
-                    // Swipe left - next month
-                    window.navigateCalendar('next');
-                } else {
-                    // Swipe right - previous month
-                    window.navigateCalendar('prev');
-                }
-            }
-            */
-        }
-
         window.switchView = function(view) {
             currentView = view;
             currentPage = 1; // Reset pagination when switching views
@@ -1025,9 +983,9 @@
 
         function showGigsView() {
             try {
-                console.log('=== showGigsView START ===');
-                console.log('Current gigs array length:', gigs.length);
-                console.log('View mode:', viewMode);
+                log('=== showGigsView START ===');
+                log('Current gigs array length:', gigs.length);
+                log('View mode:', viewMode);
                 
                 const isOwner = currentUser.role === 'owner';
                 
@@ -1135,9 +1093,9 @@
                 </div>
             `;
             
-            console.log('=== Calling renderGigs() from showGigsView ===');
+            log('=== Calling renderGigs() from showGigsView ===');
             renderGigs();
-            console.log('=== showGigsView END ===');
+            log('=== showGigsView END ===');
             } catch (error) {
                 console.error('ERROR in showGigsView:', error);
                 console.error('Error stack:', error.stack);
@@ -1208,8 +1166,8 @@
         let searchTimeout = null;
         
         window.handleGigSearch = function(query) {
-            console.log('handleGigSearch called with:', query);
-            console.log('Current focused element:', document.activeElement?.id);
+            log('handleGigSearch called with:', query);
+            log('Current focused element:', document.activeElement?.id);
             
             searchQuery = query.toLowerCase();
             
@@ -1220,9 +1178,9 @@
             
             // Debounce the render - only render after user stops typing for 300ms  
             searchTimeout = setTimeout(() => {
-                console.log('Debounced render executing');
+                log('Debounced render executing');
                 renderGigs();
-                console.log('After renderGigs, focused element:', document.activeElement?.id);
+                log('After renderGigs, focused element:', document.activeElement?.id);
             }, 300);
         };
 
@@ -1301,8 +1259,8 @@
         
         // Mark member as N/A for a gig
         window.markAsNA = async function(gigId, type, index, memberName, role) {
-            console.log('markAsNA called with:', { gigId, type, index, memberName, role });
-            console.log('Current user:', currentUser.name);
+            log('markAsNA called with:', { gigId, type, index, memberName, role });
+            log('Current user:', currentUser.name);
             
             // SECURITY: Strict check - both first AND last name must match exactly
             const userName = currentUser.name?.toLowerCase().trim() || '';
@@ -1326,11 +1284,11 @@
             
             if (!isMatch) {
                 alert(`You can only mark yourself as N/A.\n\nYou are logged in as: ${currentUser.name}\nYou tried to mark: ${memberName}\n\nIf this is your name spelled differently, please contact booking@thebarnstorm.com.`);
-                console.log('Name mismatch - access denied');
+                log('Name mismatch - access denied');
                 return;
             }
             
-            console.log('Name match confirmed - proceeding');
+            log('Name match confirmed - proceeding');
             
             const gig = gigs.find(g => g.id === gigId);
             if (!gig) {
@@ -1343,7 +1301,7 @@
             if (!confirm(confirmMsg)) return;
             
             try {
-                console.log('Sending POST request to:', GOOGLE_SHEET_API_URL);
+                log('Sending POST request to:', GOOGLE_SHEET_API_URL);
                 
                 // Show loading state
                 const modal = document.querySelector('[role="dialog"]');
@@ -1369,7 +1327,7 @@
                     })
                 });
                 
-                console.log('Request sent successfully');
+                log('Request sent successfully');
                 
                 // With no-cors mode, we can't read the response
                 // But the request should go through
@@ -1404,7 +1362,7 @@
                 return [];
             }
             
-            console.log('getFilteredGigs: Starting with', gigs.length, 'gigs');
+            log('getFilteredGigs: Starting with', gigs.length, 'gigs');
             
             let filtered = gigs;
             
@@ -1412,8 +1370,8 @@
             if (showMyGigsOnly) {
                 const userName = currentUser.name;
                 
-                console.log('Filtering for user:', userName);
-                console.log('Total gigs before My Gigs filter:', filtered.length);
+                log('Filtering for user:', userName);
+                log('Total gigs before My Gigs filter:', filtered.length);
                 
                 // Uses the same strict first + last name match as the N/A button
                 filtered = filtered.filter(gig => {
@@ -1423,7 +1381,7 @@
                            production.some(p => window.isCurrentUserMember(p.memberName));
                 });
                 
-                console.log('Filtered gigs count after My Gigs:', filtered.length);
+                log('Filtered gigs count after My Gigs:', filtered.length);
                 
                 if (filtered.length === 0) {
                     console.warn('No gigs found for user:', userName);
@@ -1433,7 +1391,7 @@
             
             // Apply search filter
             if (searchQuery) {
-                console.log('Applying search filter:', searchQuery);
+                log('Applying search filter:', searchQuery);
                 try {
                     filtered = filtered.filter(gig => {
                         const searchFields = [
@@ -1450,7 +1408,7 @@
                         const searchableText = searchFields.join(' ').toLowerCase();
                         return searchableText.includes(searchQuery);
                     });
-                    console.log('After search filter:', filtered.length);
+                    log('After search filter:', filtered.length);
                 } catch (error) {
                     console.error('Error in search filter:', error);
                     // Return unfiltered if search fails
@@ -1458,24 +1416,24 @@
             }
             
             // Safety check: ensure we always return an array
-            console.log('getFilteredGigs: Returning', filtered.length, 'gigs');
+            log('getFilteredGigs: Returning', filtered.length, 'gigs');
             return Array.isArray(filtered) ? filtered : [];
         }
 
         function renderGigs() {
             const container = document.getElementById('gigsContainer');
             if (!container) {
-                console.log('No gigsContainer element found');
+                log('No gigsContainer element found');
                 return;
             }
 
-            console.log('renderGigs called, gigs.length:', gigs.length);
+            log('renderGigs called, gigs.length:', gigs.length);
             
             const filteredGigs = getFilteredGigs();
-            console.log('filteredGigs.length:', filteredGigs.length);
+            log('filteredGigs.length:', filteredGigs.length);
             
             const today = localDateStr();
-            console.log('Today:', today);
+            log('Today:', today);
 
             // Create a state signature to check if we need to re-render
             const currentState = JSON.stringify({
@@ -1488,11 +1446,11 @@
             
             // Skip render if nothing changed
             if (currentState === lastRenderedGigsState) {
-                console.log('Skipping render - no changes detected');
+                log('Skipping render - no changes detected');
                 return;
             }
             
-            console.log('Rendering with viewMode:', viewMode);
+            log('Rendering with viewMode:', viewMode);
             lastRenderedGigsState = currentState;
 
             if (viewMode === 'calendar') {
@@ -1577,126 +1535,6 @@
             `;
         }
         
-        function renderPagination() {
-            const container = document.getElementById('paginationContainer');
-            if (!container || totalPages <= 1) {
-                if (container) container.innerHTML = '';
-                return;
-            }
-            
-            const maxVisiblePages = 5;
-            let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
-            let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-            
-            if (endPage - startPage < maxVisiblePages - 1) {
-                startPage = Math.max(1, endPage - maxVisiblePages + 1);
-            }
-            
-            const pages = [];
-            for (let i = startPage; i <= endPage; i++) {
-                pages.push(i);
-            }
-            
-            container.innerHTML = `
-                <nav class="flex flex-col gap-4" role="navigation" aria-label="Gigs pagination">
-                    <!-- Items per page selector -->
-                    <div class="flex items-center justify-center gap-2">
-                        <span class="text-zinc-400 text-sm">Items per page:</span>
-                        <div class="flex gap-1">
-                            <button 
-                                onclick="window.changeItemsPerPage(10)" 
-                                class="px-3 py-1 ${itemsPerPage === 10 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
-                            >
-                                10
-                            </button>
-                            <button 
-                                onclick="window.changeItemsPerPage(25)" 
-                                class="px-3 py-1 ${itemsPerPage === 25 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
-                            >
-                                25
-                            </button>
-                            <button 
-                                onclick="window.changeItemsPerPage(50)" 
-                                class="px-3 py-1 ${itemsPerPage === 50 ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700'} font-bold text-xs transition-colors rounded"
-                            >
-                                50
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- Page navigation -->
-                    <div class="flex justify-center items-center flex-wrap gap-1">
-                        <button 
-                            onclick="window.goToPage(1)" 
-                            ${currentPage === 1 ? 'disabled' : ''}
-                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
-                            aria-label="Go to first page"
-                        >
-                            ⏮️
-                        </button>
-                        <button 
-                            onclick="window.goToPage(${currentPage - 1})" 
-                            ${currentPage === 1 ? 'disabled' : ''}
-                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
-                            aria-label="Go to previous page"
-                        >
-                            ◀️
-                        </button>
-                        
-                        ${pages.map(page => `
-                            <button 
-                                onclick="window.goToPage(${page})" 
-                                class="px-3 py-2 ${page === currentPage ? 'bg-white text-black' : 'bg-zinc-800 text-white border border-zinc-700 hover:bg-zinc-700'} font-bold text-sm transition-colors rounded"
-                                aria-label="Go to page ${page}"
-                                ${page === currentPage ? 'aria-current="page"' : ''}
-                            >
-                                ${page}
-                            </button>
-                        `).join('')}
-                        
-                        <button 
-                            onclick="window.goToPage(${currentPage + 1})" 
-                            ${currentPage === totalPages ? 'disabled' : ''}
-                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
-                            aria-label="Go to next page"
-                        >
-                            ▶️
-                        </button>
-                        <button 
-                            onclick="window.goToPage(${totalPages})" 
-                            ${currentPage === totalPages ? 'disabled' : ''}
-                            class="px-3 py-2 bg-zinc-800 text-white font-bold text-sm border border-zinc-700 hover:bg-zinc-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed rounded"
-                            aria-label="Go to last page"
-                        >
-                            ⏭️
-                        </button>
-                        <span class="ml-2 text-zinc-400 text-sm whitespace-nowrap" role="status" aria-live="polite">
-                            Page ${currentPage} of ${totalPages}
-                        </span>
-                    </div>
-                </nav>
-            `;
-        }
-        
-        window.goToPage = function(page) {
-            if (page < 1 || page > totalPages) return;
-            currentPage = page;
-            
-            // Scroll to top of gigs container
-            const container = document.getElementById('gigsContainer');
-            if (container) {
-                container.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }
-            
-            renderGigs();
-        };
-
-        window.changeItemsPerPage = function(newItemsPerPage) {
-            itemsPerPage = newItemsPerPage;
-            currentPage = 1; // Reset to first page when changing items per page
-            renderGigs();
-        };
-
         function renderCalendar(container, filteredGigs) {
             const year = currentCalendarDate.getFullYear();
             const month = currentCalendarDate.getMonth();
@@ -1784,12 +1622,6 @@
                     </div>
                 </div>
             `;
-            
-            // Clear pagination for calendar view
-            const paginationContainer = document.getElementById('paginationContainer');
-            if (paginationContainer) {
-                paginationContainer.innerHTML = '';
-            }
         }
         
         window.navigateCalendar = function(direction) {
@@ -3329,7 +3161,7 @@
         }
 
         function showMediaView() {
-            console.log('showMediaView called');
+            log('showMediaView called');
             
             document.getElementById('contentArea').innerHTML = `
                 <div>
@@ -3358,12 +3190,12 @@
         function renderMediaList() {
             const container = document.getElementById('mediaContainer');
             if (!container) {
-                console.log('No mediaContainer element found');
+                log('No mediaContainer element found');
                 return;
             }
             
-            console.log('renderMediaList called');
-            console.log('Total gigs available:', gigs.length);
+            log('renderMediaList called');
+            log('Total gigs available:', gigs.length);
             
             // Safety check
             if (!Array.isArray(gigs)) {
@@ -3404,7 +3236,7 @@
                 })
                 .sort((a, b) => b.date.localeCompare(a.date)); // Newest first
             
-            console.log('Past gigs with media:', pastGigsWithMedia.length);
+            log('Past gigs with media:', pastGigsWithMedia.length);
             
             if (pastGigsWithMedia.length === 0) {
                 container.innerHTML = `
@@ -3590,7 +3422,7 @@
         }
 
         function showSubAlertsView() {
-            console.log('showSubAlertsView called');
+            log('showSubAlertsView called');
             
             // Get today's date
             const today = localDateStr();
