@@ -272,8 +272,8 @@
             const idToken = await getBackendToken();
             return fetch(GOOGLE_SHEET_API_URL + query + '&idToken=' + encodeURIComponent(idToken));
         }
-        // FIX 1: Force download parameter for better mobile compatibility
-        const LOGO_URL = 'https://www.dropbox.com/scl/fi/05pdxbaub02h1qa6pk9dp/Barnstorm-Logo.jpg?rlkey=8fghkclk4vvz0nxjkr2dninl5&st=1q1vn1b1&raw=1';
+        // Logo is hosted in this repo (logo.jpg) so it does not depend on Dropbox
+        const LOGO_URL = 'logo.jpg';
 
         let currentUser = null;
         let gigs = [];
