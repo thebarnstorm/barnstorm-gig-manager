@@ -585,6 +585,23 @@
             }
         }
         
+        // Local (device) date as YYYY-MM-DD. Avoids the UTC "tomorrow after 8 PM Eastern" bug.
+        function localDateStr(d) {
+            d = d || new Date();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return d.getFullYear() + '-' + m + '-' + day;
+        }
+
+        // Safely pass a text value into an inline onclick="..." handler (handles apostrophes and quotes)
+        function jsArg(value) {
+            return JSON.stringify(String(value == null ? '' : value))
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
         // Helper function to escape HTML and prevent XSS
         function escapeHtml(text) {
             const div = document.createElement('div');
@@ -1398,70 +1415,12 @@
                 console.log('Filtering for user:', userName);
                 console.log('Total gigs before My Gigs filter:', filtered.length);
                 
+                // Uses the same strict first + last name match as the N/A button
                 filtered = filtered.filter(gig => {
                     const musicians = gig.musicians || [];
                     const production = gig.production || [];
-                    
-                    // Check if current user's name matches any musician or production member
-                    const isMusician = musicians.some(m => {
-                        const memberName = (m.memberName || '').toLowerCase().trim();
-                        const userNameLower = userName.toLowerCase().trim();
-                        
-                        // Exact match
-                        if (memberName === userNameLower) return true;
-                        
-                        // Check if user name is contained in member name
-                        if (memberName.includes(userNameLower)) return true;
-                        
-                        // Check if member name is contained in user name
-                        if (userNameLower.includes(memberName)) return true;
-                        
-                        // Split names and check individual parts
-                        const userParts = userNameLower.split(/[\s@._-]+/);
-                        const memberParts = memberName.split(/[\s@._-]+/);
-                        
-                        // If any significant part matches (longer than 2 chars)
-                        for (const userPart of userParts) {
-                            if (userPart.length > 2) {
-                                for (const memberPart of memberParts) {
-                                    if (memberPart.length > 2 && 
-                                        (userPart.includes(memberPart) || memberPart.includes(userPart))) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        return false;
-                    });
-                    
-                    const isProduction = production.some(p => {
-                        const memberName = (p.memberName || '').toLowerCase().trim();
-                        const userNameLower = userName.toLowerCase().trim();
-                        
-                        // Same matching logic
-                        if (memberName === userNameLower) return true;
-                        if (memberName.includes(userNameLower)) return true;
-                        if (userNameLower.includes(memberName)) return true;
-                        
-                        const userParts = userNameLower.split(/[\s@._-]+/);
-                        const memberParts = memberName.split(/[\s@._-]+/);
-                        
-                        for (const userPart of userParts) {
-                            if (userPart.length > 2) {
-                                for (const memberPart of memberParts) {
-                                    if (memberPart.length > 2 && 
-                                        (userPart.includes(memberPart) || memberPart.includes(userPart))) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        return false;
-                    });
-                    
-                    return isMusician || isProduction;
+                    return musicians.some(m => window.isCurrentUserMember(m.memberName)) ||
+                           production.some(p => window.isCurrentUserMember(p.memberName));
                 });
                 
                 console.log('Filtered gigs count after My Gigs:', filtered.length);
@@ -1515,7 +1474,7 @@
             const filteredGigs = getFilteredGigs();
             console.log('filteredGigs.length:', filteredGigs.length);
             
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateStr();
             console.log('Today:', today);
 
             // Create a state signature to check if we need to re-render
@@ -1854,7 +1813,7 @@
         // Handle clicking on a calendar day - go directly to detail if only 1 gig, otherwise show day modal
         window.handleCalendarDayClick = function(year, month, day) {
             const date = new Date(year, month, day);
-            const dateStr = date.toISOString().split('T')[0];
+            const dateStr = localDateStr(date);
             const dayGigs = gigs.filter(g => g.date === dateStr);
             
             if (dayGigs.length === 0) return;
@@ -1870,7 +1829,7 @@
         
         window.showDayGigs = function(year, month, day) {
             const date = new Date(year, month, day);
-            const dateStr = date.toISOString().split('T')[0];
+            const dateStr = localDateStr(date);
             const dayGigs = gigs.filter(g => g.date === dateStr);
             
             if (dayGigs.length === 0) return;
@@ -2058,7 +2017,7 @@
                     ` : ''}
                     
                     <!-- Media & Documentation (Past Gigs Only) -->
-                    ${g.date < new Date().toISOString().split('T')[0] && g.media && (g.media.photo || g.media.video || g.media.audio || g.media.photographer || g.media.videoEdits || g.media.vendors || g.media.blog || g.media.photoNA || g.media.videoNA || g.media.audioNA || g.media.videoEditsNA || g.media.blogNA) ? `
+                    ${g.date < localDateStr() && g.media && (g.media.photo || g.media.video || g.media.audio || g.media.photographer || g.media.videoEdits || g.media.vendors || g.media.blog || g.media.photoNA || g.media.videoNA || g.media.audioNA || g.media.videoEditsNA || g.media.blogNA) ? `
                         <div class="pb-6 border-b border-zinc-800 mb-6">
                             <h3 class="text-xs text-zinc-400 mb-4 uppercase tracking-wider">📸 Media & Documentation</h3>
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2197,7 +2156,7 @@
                                                 const isCurrentUser = window.isCurrentUserMember(m.memberName);
                                                 const needsSub = m.isNeed === true;
                                                 const isNA = m.isNA === true;
-                                                const gigDate = new Date(g.date);
+                                                const gigDate = new Date(g.date + 'T00:00:00');
                                                 const today = new Date();
                                                 today.setHours(0, 0, 0, 0);
                                                 const isFutureGig = gigDate >= today;
@@ -2219,7 +2178,7 @@
                                                         </div>
                                                         ${isCurrentUser && !isNA && isFutureGig ? `
                                                             <button 
-                                                                onclick="window.markAsNA('${g.id}', 'musician', ${index}, '${escapeHtml(m.memberName)}', '${escapeHtml(m.instrument || '')}')"
+                                                                onclick="window.markAsNA('${g.id}', 'musician', ${index}, ${jsArg(m.memberName)}, ${jsArg(m.instrument || '')})"
                                                                 class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
                                                                 title="Mark yourself as unavailable for this gig"
                                                             >
@@ -2242,7 +2201,7 @@
                                                 const isCurrentUser = window.isCurrentUserMember(p.memberName);
                                                 const needsSub = p.isNeed === true;
                                                 const isNA = p.isNA === true;
-                                                const gigDate = new Date(g.date);
+                                                const gigDate = new Date(g.date + 'T00:00:00');
                                                 const today = new Date();
                                                 today.setHours(0, 0, 0, 0);
                                                 const isFutureGig = gigDate >= today;
@@ -2264,7 +2223,7 @@
                                                         </div>
                                                         ${isCurrentUser && !isNA && isFutureGig ? `
                                                             <button 
-                                                                onclick="window.markAsNA('${g.id}', 'production', ${index}, '${escapeHtml(p.memberName)}', '${escapeHtml(p.role || '')}')"
+                                                                onclick="window.markAsNA('${g.id}', 'production', ${index}, ${jsArg(p.memberName)}, ${jsArg(p.role || '')})"
                                                                 class="px-3 py-1 bg-red-700 text-white font-bold text-xs uppercase hover:bg-red-600 rounded flex-shrink-0"
                                                                 title="Mark yourself as unavailable for this gig"
                                                             >
@@ -3421,7 +3380,7 @@
             }
             
             // Filter to only past gigs with media
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateStr();
             
             const pastGigsWithMedia = gigs
                 .filter(g => {
@@ -3634,7 +3593,7 @@
             console.log('showSubAlertsView called');
             
             // Get today's date
-            const today = new Date().toISOString().split('T')[0];
+            const today = localDateStr();
             
             // Find all upcoming gigs that need subs
             const upcomingGigsWithNeeds = gigs.filter(g => {
